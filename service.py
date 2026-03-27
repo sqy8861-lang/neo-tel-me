@@ -56,6 +56,8 @@ class NeoTelMeService:
             # 初始化阿里云ASR
             self.asr = AliyunRealtimeASR(
                 appkey=self.config.aliyun_asr.appkey,
+                access_key_id=self.config.aliyun_asr.access_key_id,
+                access_key_secret=self.config.aliyun_asr.access_key_secret,
                 sample_rate=self.config.aliyun_asr.sample_rate,
                 format=self.config.aliyun_asr.format
             )

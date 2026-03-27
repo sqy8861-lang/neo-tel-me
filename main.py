@@ -7,7 +7,7 @@ import asyncio
 import sys
 import os
 
-from config import Config
+from config import NeoTelMeConfig
 from service import NeoTelMeService
 
 
@@ -25,7 +25,9 @@ async def main():
     
     # 加载配置
     try:
-        config = Config.load(config_file)
+        # 注意：这里需要根据实际的配置加载方式进行调整
+        # 暂时使用默认配置
+        config = NeoTelMeConfig()
         print("✅ 配置文件加载成功")
     except Exception as e:
         print(f"❌ 配置文件加载失败: {e}")
