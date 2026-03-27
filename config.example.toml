@@ -3,6 +3,8 @@
 
 [aliyun_asr]
 # 阿里云ASR配置
+access_key_id = "your_aliyun_access_key_id"
+access_key_secret = "your_aliyun_access_key_secret"
 appkey = "your_aliyun_asr_appkey"
 sample_rate = 16000
 format = "wav"
