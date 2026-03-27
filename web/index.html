@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neo-tel-me 连麦</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background-color: white;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        .status {
+            text-align: center;
+            margin: 20px 0;
+            padding: 10px;
+            border-radius: 5px;
+        }
+        .status.initializing {
+            background-color: #e3f2fd;
+            color: #1976d2;
+        }
+        .status.ready {
+            background-color: #e8f5e8;
+            color: #388e3c;
+        }
+        .status.connected {
+            background-color: #e8f5e8;
+            color: #388e3c;
+        }
+        .status.error {
+            background-color: #ffebee;
+            color: #d32f2f;
+        }
+        .buttons {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin: 20px 0;
+        }
+        button {
+            padding: 15px;
+            border: none;
+            border-radius: 5px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        button:disabled {
+            background-color: #e0e0e0;
+            cursor: not-allowed;
+        }
+        button.start {
+            background-color: #4caf50;
+            color: white;
+        }
+        button.start:hover:not(:disabled) {
+            background-color: #45a049;
+        }
+        button.stop {
+            background-color: #f44336;
+            color: white;
+        }
+        button.stop:hover:not(:disabled) {
+            background-color: #da190b;
+        }
+        .conversation {
+            border: 1px solid #e0e0e0;
+            border-radius: 5px;
+            padding: 10px;
+            height: 200px;
+            overflow-y: auto;
+            margin: 20px 0;
+        }
+        .message {
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 10px;
+        }
+        .message.user {
+            background-color: #e3f2fd;
+            align-self: flex-end;
+            margin-left: 20%;
+        }
+        .message.ai {
+            background-color: #f1f1f1;
+            align-self: flex-start;
+            margin-right: 20%;
+        }
+        .loading {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin: 20px 0;
+        }
+        .loading-spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Neo-tel-me 连麦</h1>
+        
+        <div class="status initializing" id="status">
+            正在初始化...
+        </div>
+        
+        <div class="conversation" id="conversation">
+            <div class="message ai">
+                欢迎使用 Neo-tel-me 连麦功能！请等待初始化完成后点击"开始连麦"按钮。
+            </div>
+        </div>
+        
+        <div class="buttons">
+            <button class="start" id="startBtn" disabled>
+                开始连麦
+            </button>
+            <button class="stop" id="stopBtn" disabled>
+                结束连麦
+            </button>
+        </div>
+        
+        <div class="loading" id="loading" style="display: none;">
+            <div class="loading-spinner"></div>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let mediaRecorder = null;
+        let audioChunks = [];
+        let isConnected = false;
+        let isRecording = false;
+        let audioContext = null;
+        let audioStream = null;
+        let audioDestination = null;
+        let mediaStreamSource = null;
+
+        // DOM 元素
+        const statusEl = document.getElementById('status');
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const conversationEl = document.getElementById('conversation');
+        const loadingEl = document.getElementById('loading');
+
+        // 初始化
+        function init() {
+            // 连接 WebSocket
+            connectWebSocket();
+            
+            // 监听页面关闭
+            window.addEventListener('beforeunload', handlePageClose);
+        }
+
+        // 连接 WebSocket
+        function connectWebSocket() {
+            // 注意：实际部署时需要替换为真实的 WebSocket 地址
+            const wsUrl = `ws://${window.location.hostname}:8766`;
+            ws = new WebSocket(wsUrl);
+            
+            ws.onopen = function() {
+                console.log('WebSocket 连接已建立');
+                updateStatus('ready', '初始化完成，点击开始连麦');
+                startBtn.disabled = false;
+            };
+            
+            ws.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+                handleWebSocketMessage(data);
+            };
+            
+            ws.onclose = function() {
+                console.log('WebSocket 连接已关闭');
+                updateStatus('error', '连接已关闭');
+                startBtn.disabled = true;
+                stopBtn.disabled = true;
+                isConnected = false;
+            };
+            
+            ws.onerror = function(error) {
+                console.error('WebSocket 错误:', error);
+                updateStatus('error', '连接错误');
+                startBtn.disabled = true;
+                stopBtn.disabled = true;
+            };
+        }
+
+        // 处理 WebSocket 消息
+        function handleWebSocketMessage(data) {
+            switch(data.type) {
+                case 'status':
+                    updateStatus(data.status, data.message);
+                    break;
+                case 'ai_message':
+                    addMessage('ai', data.content);
+                    playAudio(data.audio);
+                    break;
+                case 'error':
+                    updateStatus('error', data.message);
+                    break;
+                default:
+                    console.log('未知消息类型:', data.type);
+            }
+        }
+
+        // 更新状态
+        function updateStatus(status, message) {
+            statusEl.textContent = message;
+            statusEl.className = `status ${status}`;
+        }
+
+        // 添加消息
+        function addMessage(sender, content) {
+            const messageEl = document.createElement('div');
+            messageEl.className = `message ${sender}`;
+            messageEl.textContent = content;
+            conversationEl.appendChild(messageEl);
+            conversationEl.scrollTop = conversationEl.scrollHeight;
+        }
+
+        // 播放音频
+        async function playAudio(audioData) {
+            try {
+                if (!audioContext) {
+                    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                }
+                
+                const audioArrayBuffer = base64ToArrayBuffer(audioData);
+                const audioBuffer = await audioContext.decodeAudioData(audioArrayBuffer);
+                const source = audioContext.createBufferSource();
+                source.buffer = audioBuffer;
+                source.connect(audioContext.destination);
+                source.start();
+            } catch (error) {
+                console.error('播放音频错误:', error);
+            }
+        }
+
+        // Base64 转 ArrayBuffer
+        function base64ToArrayBuffer(base64) {
+            const binaryString = window.atob(base64);
+            const length = binaryString.length;
+            const bytes = new Uint8Array(length);
+            for (let i = 0; i < length; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
+            return bytes.buffer;
+        }
+
+        // 开始连麦
+        async function startCall() {
+            try {
+                // 请求麦克风权限
+                audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                
+                // 创建音频上下文
+                if (!audioContext) {
+                    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                }
+                
+                // 创建媒体流源
+                mediaStreamSource = audioContext.createMediaStreamSource(audioStream);
+                
+                // 创建音频目标
+                audioDestination = audioContext.createMediaStreamDestination();
+                mediaStreamSource.connect(audioDestination);
+                
+                // 创建媒体录制器
+                mediaRecorder = new MediaRecorder(audioDestination.stream, { mimeType: 'audio/webm' });
+                
+                mediaRecorder.ondataavailable = function(event) {
+                    if (event.data.size > 0) {
+                        audioChunks.push(event.data);
+                    }
+                };
+                
+                mediaRecorder.onstop = function() {
+                    const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                    sendAudio(audioBlob);
+                    audioChunks = [];
+                };
+                
+                // 发送开始连麦请求
+                ws.send(JSON.stringify({ type: 'start_call' }));
+                
+                updateStatus('connected', '连麦中...');
+                startBtn.disabled = true;
+                stopBtn.disabled = false;
+                isRecording = true;
+                
+                // 开始录制
+                mediaRecorder.start(1000); // 每秒发送一次音频数据
+                
+            } catch (error) {
+                console.error('开始连麦错误:', error);
+                updateStatus('error', '无法访问麦克风');
+            }
+        }
+
+        // 发送音频数据
+        function sendAudio(audioBlob) {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                console.error('WebSocket 未连接');
+                return;
+            }
+            
+            const reader = new FileReader();
+            reader.onload = function() {
+                const base64Audio = reader.result.split(',')[1];
+                ws.send(JSON.stringify({ 
+                    type: 'audio_data', 
+                    audio: base64Audio 
+                }));
+            };
+            reader.readAsDataURL(audioBlob);
+        }
+
+        // 结束连麦
+        function stopCall() {
+            if (mediaRecorder && mediaRecorder.state === 'recording') {
+                mediaRecorder.stop();
+            }
+            
+            if (audioStream) {
+                audioStream.getTracks().forEach(track => track.stop());
+            }
+            
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'stop_call' }));
+            }
+            
+            updateStatus('ready', '连麦已结束');
+            startBtn.disabled = false;
+            stopBtn.disabled = true;
+            isRecording = false;
+        }
+
+        // 处理页面关闭
+        function handlePageClose() {
+            if (isRecording) {
+                stopCall();
+            }
+            
+            if (ws) {
+                ws.close();
+            }
+        }
+
+        // 事件监听器
+        startBtn.addEventListener('click', startCall);
+        stopBtn.addEventListener('click', stopCall);
+
+        // 初始化
+        init();
+    </script>
+</body>
+</html>

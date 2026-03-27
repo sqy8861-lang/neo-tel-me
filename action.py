@@ -2,10 +2,10 @@ from src.core.components.base.action import BaseAction
 
 
 class NeoTelMeAction(BaseAction):
-    """Neo-tel-me Action：启动/停止实时语音对话"""
+    """Neo-tel-me Action：生成连麦H5页面链接"""
 
     action_name = "neo_tel_me"
-    action_description = "启动或停止Neo-tel-me实时语音对话服务。当服务启动时，系统会监听麦克风输入，将语音转换为文本，生成回复后再转换为语音播放。"
+    action_description = "生成Neo-tel-me连麦H5页面链接。当用户的消息中包含 '#连麦' 标签时，应该调用此动作来生成连麦页面链接。用户点击链接后可以开始语音对话。"
 
     chatter_allow: list[str] = []
 
@@ -13,26 +13,14 @@ class NeoTelMeAction(BaseAction):
         """执行Neo-tel-me动作
 
         Args:
-            action: 动作类型，可选值：start（启动）、stop（停止）
+            action: 动作类型，可选值：start（生成链接）
         """
-        from .plugin import neo_tel_me_service
+        # 生成 H5 页面链接
+        # 注意：实际部署时需要替换为真实的服务器地址
+        web_url = "http://localhost:8765/web/index.html"
         
         if action == "start":
-            if neo_tel_me_service.is_service_running():
-                return True, "Neo-tel-me 服务已经在运行中"
-            
-            success = await neo_tel_me_service.start()
-            if success:
-                return True, "Neo-tel-me 服务已成功启动"
-            else:
-                return False, "Neo-tel-me 服务启动失败"
-        
-        elif action == "stop":
-            if not neo_tel_me_service.is_service_running():
-                return True, "Neo-tel-me 服务已经停止"
-            
-            await neo_tel_me_service.stop()
-            return True, "Neo-tel-me 服务已成功停止"
+            return True, f"🎙️ 连麦功能已准备就绪！请点击以下链接开始连麦：\n{web_url}\n\n点击链接后，在打开的页面中点击'开始连麦'按钮即可开始语音对话。"
         
         else:
             return False, f"未知的动作类型: {action}"
