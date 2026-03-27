@@ -26,7 +26,7 @@ class NeoTelMePlugin(BasePlugin):
         """插件加载时执行"""
         global neo_tel_me_service
         # 初始化服务
-        neo_tel_me_service = NeoTelMeService(self.config)
+        neo_tel_me_service = NeoTelMeService(self)
         logger.info("Neo-tel-me 插件已加载")
 
     async def on_plugin_unloaded(self) -> None:
