@@ -1,0 +1,47 @@
+# Neo-tel-me 配置示例文件
+# 复制此文件为 config.toml 并填写你的API密钥
+
+[aliyun_asr]
+# 阿里云ASR配置
+appkey = "your_aliyun_asr_appkey"
+sample_rate = 16000
+format = "wav"
+
+[minimax_tts]
+# MiniMax TTS配置
+api_key = "your_minimax_api_key"
+voice_id = "female-tianmei"
+model = "speech-01"
+speed = 1.0
+volume = 1.0
+pitch = 1.0
+sample_rate = 24000
+
+[audio]
+# 音频配置
+sample_rate = 16000
+chunk = 1024
+vad_threshold = 0.02
+
+[llm]
+# LLM配置
+
+[llm.model]
+# 模型配置
+provider = "openai"  # 可选: openai, anthropic
+model_name = "gpt-4"
+api_key = "your_llm_api_key"
+base_url = "https://api.openai.com/v1"  # 可选，用于自定义API端点
+temperature = 0.7
+max_tokens = 1000
+
+[llm.prompt]
+# 提示词配置
+personality_prompt = ""  # 性格提示词（200字，会自动生成）
+memory_prompt = ""  # 记忆提示词（200字，会自动生成）
+max_history = 4  # 最近历史记录数量
+
+[llm.memory]
+# 记忆配置
+recent_count = 5  # 近期记忆数量
+important_only = true  # 只获取重要记忆
