@@ -6,7 +6,7 @@ from typing import List, Dict, Optional
 class PromptRefiner:
     """提示词精炼器"""
     
-    def __init__(self, custom_prompt_path: str = "config/custom_prompt_injector/config.toml"):
+    def __init__(self, custom_prompt_path: str = "config/plugins/custom_prompt_injector/config.toml"):
         """
         初始化提示词精炼器
         
