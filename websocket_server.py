@@ -7,11 +7,11 @@ import io
 import threading
 from typing import Dict, Set
 
-from .aliyun_asr import AliyunRealtimeASR
-from .minimax_tts import MiniMaxTTS
-from .llm_client import LLMClient
-from .llm_config import LLMConfig
-from .history_manager import HistoryManager
+from aliyun_asr import AliyunRealtimeASR
+from minimax_tts import MiniMaxTTS
+from llm_client import LLMClient
+from llm_config import LLMConfig
+from history_manager import HistoryManager
 
 class WebSocketServer:
     """

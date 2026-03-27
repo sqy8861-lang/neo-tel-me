@@ -1,14 +1,14 @@
 import asyncio
 from typing import Optional
 
-from .aliyun_asr import AliyunRealtimeASR
-from .minimax_tts import MiniMaxTTS
-from .audio_manager import AudioManager
-from .llm_config import LLMConfig
-from .llm_client import LLMClient
-from .prompt_refiner import PromptRefiner
-from .memory_manager import MemoryManager
-from .history_manager import HistoryManager
+from aliyun_asr import AliyunRealtimeASR
+from minimax_tts import MiniMaxTTS
+from audio_manager import AudioManager
+from llm_config import LLMConfig
+from llm_client import LLMClient
+from prompt_refiner import PromptRefiner
+from memory_manager import MemoryManager
+from history_manager import HistoryManager
 
 
 class NeoTelMeService:

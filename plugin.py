@@ -4,11 +4,11 @@ from src.core.components.base import BasePlugin
 from src.core.components.loader import register_plugin
 from src.kernel.logger import get_logger
 
-from .config import NeoTelMeConfig
-from .service import NeoTelMeService
-from .action import NeoTelMeAction
-from .websocket_server import WebSocketServer
-from .http_server import HTTPServer
+from config import NeoTelMeConfig
+from service import NeoTelMeService
+from action import NeoTelMeAction
+from websocket_server import WebSocketServer
+from http_server import HTTPServer
 
 # 全局服务实例
 neo_tel_me_service = None
