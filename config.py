@@ -9,7 +9,6 @@ class NeoTelMeConfig(BaseModel):
         """插件基础配置"""
         enable_cooldown: bool = False
         cooldown_minutes: float = 5.0
-        inject_system_prompt: bool = True  # 是否注入系统提示词
     
     class AliyunASR(BaseModel):
         """阿里云ASR配置"""
