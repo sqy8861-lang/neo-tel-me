@@ -13,8 +13,8 @@ class NeoTelMeConfig(BaseModel):
     
     class AliyunASR(BaseModel):
         """阿里云ASR配置"""
-        access_key: str = ""
-        access_secret: str = ""
+        access_key_id: str = ""
+        access_key_secret: str = ""
         appkey: str = ""
         sample_rate: int = 16000
         format: str = "pcm"
