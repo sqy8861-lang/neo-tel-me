@@ -1,29 +1,39 @@
 import asyncio
 from typing import Optional
 
-from aliyun_asr import AliyunRealtimeASR
-from minimax_tts import MiniMaxTTS
-from audio_manager import AudioManager
-from llm_config import LLMConfig
-from llm_client import LLMClient
-from prompt_refiner import PromptRefiner
-from memory_manager import MemoryManager
-from history_manager import HistoryManager
+from src.core.components.base.service import BaseService
+from src.kernel.logger import get_logger
+
+from .aliyun_asr import AliyunRealtimeASR
+from .minimax_tts import MiniMaxTTS
+from .audio_manager import AudioManager
+from .llm_config import LLMConfig
+from .llm_client import LLMClient
+from .prompt_refiner import PromptRefiner
+from .memory_manager import MemoryManager
+from .history_manager import HistoryManager
+
+logger = get_logger("neo_tel_me")
 
 
-class NeoTelMeService:
+class NeoTelMeService(BaseService):
+    """Neo-tel-me 服务"""
+    
+    service_name: str = "neo_tel_me"
+    service_description: str = "实时语音对话服务，支持阿里云ASR和MiniMax TTS"
+    version: str = "1.0.0"
     """
     Neo-tel-me 服务
     """
     
-    def __init__(self, config):
+    def __init__(self, plugin):
         """
         初始化服务
         
         Args:
-            config: 插件配置
+            plugin: 插件实例
         """
-        self.config = config
+        super().__init__(plugin)
         self.asr = None
         self.tts = None
         self.audio_manager = None
@@ -38,6 +48,19 @@ class NeoTelMeService:
         self.history_manager = None
         self.llm_initialized = False
     
+    def _cfg(self):
+        """
+        获取插件配置
+        
+        Returns:
+            NeoTelMeConfig: 插件配置
+        """
+        from .config import NeoTelMeConfig
+        cfg = self.plugin.config
+        if not isinstance(cfg, NeoTelMeConfig):
+            raise RuntimeError("neo_tel_me plugin config 未正确加载")
+        return cfg
+    
     async def start(self):
         """
         启动服务
@@ -48,25 +71,25 @@ class NeoTelMeService:
             
             # 初始化音频管理器
             self.audio_manager = AudioManager(
-                sample_rate=self.config.audio.sample_rate,
-                chunk=self.config.audio.chunk,
-                vad_threshold=self.config.audio.vad_threshold
+                sample_rate=self._cfg().audio.sample_rate,
+                chunk=self._cfg().audio.chunk,
+                vad_threshold=self._cfg().audio.vad_threshold
             )
             
             # 初始化阿里云ASR
             self.asr = AliyunRealtimeASR(
-                appkey=self.config.aliyun_asr.appkey,
-                access_key_id=self.config.aliyun_asr.access_key_id,
-                access_key_secret=self.config.aliyun_asr.access_key_secret,
-                sample_rate=self.config.aliyun_asr.sample_rate,
-                format=self.config.aliyun_asr.format
+                appkey=self._cfg().aliyun_asr.appkey,
+                access_key_id=self._cfg().aliyun_asr.access_key_id,
+                access_key_secret=self._cfg().aliyun_asr.access_key_secret,
+                sample_rate=self._cfg().aliyun_asr.sample_rate,
+                format=self._cfg().aliyun_asr.format
             )
             
             # 初始化MiniMax TTS
             self.tts = MiniMaxTTS(
-                api_key=self.config.minimax_tts.api_key,
-                voice_id=self.config.minimax_tts.voice_id,
-                model=self.config.minimax_tts.model
+                api_key=self._cfg().minimax_tts.api_key,
+                voice_id=self._cfg().minimax_tts.voice_id,
+                model=self._cfg().minimax_tts.model
             )
             
             # 连接ASR
@@ -82,11 +105,11 @@ class NeoTelMeService:
             )
             
             self.is_running = True
-            print("🎙️ Neo-tel-me 服务已启动！")
-            print("💡 提示：说话即可，AI 会自动回复；大声说话可打断 AI")
+            logger.info("Neo-tel-me 服务已启动！")
+            logger.info("提示：说话即可，AI 会自动回复；大声说话可打断 AI")
             return True
         except Exception as e:
-            print(f"服务启动失败: {e}")
+            logger.error(f"服务启动失败: {e}")
             return False
     
     async def _initialize_llm(self):
@@ -117,9 +140,9 @@ class NeoTelMeService:
             self.history_manager = HistoryManager(max_history=4)
             
             self.llm_initialized = True
-            print("✅ LLM组件初始化完成")
+            logger.info("LLM组件初始化完成")
         except Exception as e:
-            print(f"LLM组件初始化失败: {e}")
+            logger.error(f"LLM组件初始化失败: {e}")
             self.llm_initialized = False
     
     async def stop(self):
@@ -149,9 +172,9 @@ class NeoTelMeService:
             if self.llm_client:
                 await self.llm_client.close()
             
-            print("🛑 Neo-tel-me 服务已停止")
+            logger.info("Neo-tel-me 服务已停止")
         except Exception as e:
-            print(f"服务停止失败: {e}")
+            logger.error(f"服务停止失败: {e}")
     
     async def _on_audio_data(self, audio_data: bytes):
         """
@@ -171,9 +194,9 @@ class NeoTelMeService:
             volume: 音量
         """
         # 如果AI正在说话，且检测到较大音量，触发打断
-        if self.tts and self.tts.is_playing() and volume > self.config.audio.vad_threshold:
+        if self.tts and self.tts.is_playing() and volume > self._cfg().audio.vad_threshold:
             self.tts.interrupt()
-            print("👤 用户打断 AI...")
+            logger.info("用户打断 AI")
     
     async def _on_asr_result(self, text: str):
         """
@@ -182,7 +205,7 @@ class NeoTelMeService:
         Args:
             text: 识别文本
         """
-        print(f"👤 用户说: {text}")
+        logger.info(f"用户说: {text}")
         
         # 打断当前AI说话
         if self.tts and self.tts.is_playing():
@@ -200,7 +223,7 @@ class NeoTelMeService:
         
         # 使用LLM生成回复
         reply = await self._generate_reply(text)
-        print(f"🤖 AI 说: {reply}")
+        logger.info(f"AI 说: {reply}")
         
         # 添加AI回复到历史记录
         if self.history_manager:
@@ -233,10 +256,10 @@ class NeoTelMeService:
             if reply:
                 return reply
             else:
-                print("LLM返回空回复，使用模拟回复")
+                logger.warning("LLM返回空回复，使用模拟回复")
                 return self._get_mock_reply(user_input)
         except Exception as e:
-            print(f"LLM生成回复失败: {e}")
+            logger.error(f"LLM生成回复失败: {e}")
             return self._get_mock_reply(user_input)
     
     def _get_mock_reply(self, text: str) -> str:
@@ -278,18 +301,18 @@ class NeoTelMeService:
         try:
             async for audio_data in self.tts.tts_stream(
                 text=text,
-                speed=self.config.minimax_tts.speed,
-                volume=self.config.minimax_tts.volume,
-                pitch=self.config.minimax_tts.pitch,
-                sample_rate=self.config.minimax_tts.sample_rate
+                speed=self._cfg().minimax_tts.speed,
+                volume=self._cfg().minimax_tts.volume,
+                pitch=self._cfg().minimax_tts.pitch,
+                sample_rate=self._cfg().minimax_tts.sample_rate
             ):
                 if self.audio_manager:
                     self.audio_manager.play_audio(
                         audio_data,
-                        sample_rate=self.config.minimax_tts.sample_rate
+                        sample_rate=self._cfg().minimax_tts.sample_rate
                     )
         except Exception as e:
-            print(f"TTS 播放错误: {e}")
+            logger.error(f"TTS 播放错误: {e}")
     
     def is_service_running(self) -> bool:
         """
