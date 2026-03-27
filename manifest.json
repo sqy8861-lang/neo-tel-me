@@ -1,0 +1,28 @@
+{
+  "name": "neo_tel_me",
+  "version": "1.0.0",
+  "description": "Neo-tel-me — 实时语音对话插件，支持阿里云ASR和MiniMax TTS，实现连麦功能",
+  "author": "MoFox Team",
+  "dependencies": {
+    "plugins": [],
+    "components": []
+  },
+  "include": [
+    {
+      "component_type": "service",
+      "component_name": "neo_tel_me",
+      "dependencies": [],
+      "enabled": true
+    },
+    {
+      "component_type": "action",
+      "component_name": "neo_tel_me",
+      "dependencies": [],
+      "enabled": true
+    }
+  ],
+  "entry_point": "plugin.py",
+  "min_core_version": "1.0.0",
+  "python_dependencies": ["aiohttp", "toml", "websockets"],
+  "dependencies_required": true
+}
