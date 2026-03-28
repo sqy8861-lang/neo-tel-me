@@ -4,10 +4,6 @@ import sys
 import time
 from typing import Optional, Callable
 
-# 添加SDK路径到Python路径
-sdk_path = os.path.join(os.path.dirname(__file__), 'alibabacloud-nls-python-sdk')
-sys.path.append(sdk_path)
-
 import nls
 
 
