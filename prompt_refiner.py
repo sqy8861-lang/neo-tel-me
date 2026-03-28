@@ -84,7 +84,7 @@ class PromptRefiner:
         """
         if not llm_client:
             print("LLM客户端未初始化，使用原始内容")
-            return raw_content[:200]
+            return raw_content
         
         try:
             prompt = f"""请将以下机器人性格和表达习惯的描述精炼为200字左右的提示词，保留核心性格特征和表达方式：
@@ -101,22 +101,23 @@ class PromptRefiner:
             response = await llm_client.generate(prompt, max_tokens=300)
             
             if response:
-                self.personality_prompt = response[:200]
+                self.personality_prompt = response
                 print(f"✅ 性格提示词精炼完成: {len(self.personality_prompt)}字")
                 return self.personality_prompt
             else:
                 print("LLM返回空内容，使用原始内容")
-                return raw_content[:200]
+                return raw_content
         except Exception as e:
             print(f"精炼性格提示词失败: {e}")
-            return raw_content[:200]
+            return raw_content
     
-    async def initialize(self, llm_client=None) -> str:
+    async def initialize(self, llm_client=None, user_nickname: str = "") -> str:
         """
         初始化提示词精炼器
         
         Args:
             llm_client: LLM客户端（可选）
+            user_nickname: 用户昵称，用于个性化提示词
             
         Returns:
             str: 精炼后的性格提示词
@@ -124,19 +125,31 @@ class PromptRefiner:
         # 加载custom prompts
         prompts = self.load_custom_prompts()
         
+        # 基础提示词
+        base_prompt = "你是辞安，用户的傲娇系温柔守护者。"
+        
+        # 如果有用户昵称，按照要求修改提示词
+        if user_nickname:
+            base_prompt = f"你是辞安，用户的傲娇系温柔守护者。你说话的对象是{user_nickname}。"
+        
         if not prompts:
             print("没有找到custom prompts，使用默认性格提示词")
-            return "你是辞安，用户的傲娇系温柔守护者。"
+            return base_prompt
         
         # 筛选非AFC模式的prompts
         afc_prompts = self.filter_afc_prompts(prompts)
         
         if not afc_prompts:
             print("没有找到非AFC模式的prompts，使用默认性格提示词")
-            return "你是辞安，用户的傲娇系温柔守护者。"
+            return base_prompt
         
         # 提取内容
         raw_content = self.extract_content(afc_prompts)
+        
+        # 如果有用户昵称，添加到内容中
+        if user_nickname:
+            raw_content += f"\n你说话的对象是{user_nickname}。"
+        
         print(f"提取到 {len(raw_content)} 字的原始内容")
         
         # 精炼提示词
@@ -160,5 +173,5 @@ class PromptRefiner:
         Args:
             prompt: 性格提示词
         """
-        self.personality_prompt = prompt[:200]
+        self.personality_prompt = prompt
         print(f"设置性格提示词: {len(self.personality_prompt)}字")

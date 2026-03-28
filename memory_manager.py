@@ -120,7 +120,7 @@ class MemoryManager:
                 response = await llm_client.generate(refine_prompt, max_tokens=300)
                 
                 if response:
-                    self.memory_prompt = response[:200]
+                    self.memory_prompt = response
                     print(f"✅ 记忆提示词精炼完成: {len(self.memory_prompt)}字")
                     return self.memory_prompt
             except Exception as e:
@@ -166,5 +166,5 @@ class MemoryManager:
         Args:
             prompt: 记忆提示词
         """
-        self.memory_prompt = prompt[:200]
+        self.memory_prompt = prompt
         print(f"设置记忆提示词: {len(self.memory_prompt)}字")
