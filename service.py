@@ -1,5 +1,7 @@
 import asyncio
 from typing import Optional
+import json
+from pathlib import Path
 
 from .aliyun_asr import AliyunRealtimeASR
 from .minimax_tts import MiniMaxTTS
@@ -10,6 +12,10 @@ from .prompt_refiner import PromptRefiner
 from .memory_manager import MemoryManager
 from .history_manager import HistoryManager
 from .websocket_handler import WebSocketHandler
+
+# 提示词存储路径
+DATA_DIR = Path("data")
+MEMORY_PROMPT_FILE = DATA_DIR / "memory_prompt.json"
 
 
 class NeoTelMeService:
@@ -23,12 +29,13 @@ class NeoTelMeService:
     Neo-tel-me 服务
     """
     
-    def __init__(self, config):
+    def __init__(self, config, system_prompt: str = ""):
         """
         初始化服务
         
         Args:
             config: 配置对象
+            system_prompt: 系统提示词
         """
         self.config = config
         self.asr = None
@@ -36,6 +43,8 @@ class NeoTelMeService:
         self.audio_manager = None
         self.is_running = False
         self.current_tts_task = None
+        self.user_nickname = ""
+        self.system_prompt = system_prompt
         
         # LLM相关组件
         self.llm_config = None
@@ -107,16 +116,24 @@ class NeoTelMeService:
             self.llm_client = LLMClient(self.llm_config)
             await self.llm_client.initialize()
             
-            # 初始化提示词精炼器
-            self.prompt_refiner = PromptRefiner()
-            personality_prompt = await self.prompt_refiner.initialize(self.llm_client)
-            self.llm_client.set_system_prompt(personality_prompt)
+            # 使用传入的系统提示词
+            if self.system_prompt:
+                print("使用插件加载时生成的系统提示词")
+                # 如果有用户昵称，添加到系统提示词中
+                if self.user_nickname:
+                    personalized_system_prompt = f"{self.system_prompt}\n\n你说话的对象是{self.user_nickname}。"
+                    self.llm_client.set_system_prompt(personalized_system_prompt)
+                else:
+                    self.llm_client.set_system_prompt(self.system_prompt)
+            else:
+                # fallback：如果没有系统提示词，生成一个
+                print("没有系统提示词，正在生成默认提示词")
+                self.prompt_refiner = PromptRefiner()
+                personality_prompt = await self.prompt_refiner.initialize(self.llm_client, user_nickname=self.user_nickname)
+                self.llm_client.set_system_prompt(personality_prompt)
             
-            # 初始化记忆管理器
-            self.memory_manager = MemoryManager()
-            # 这里可以传入booku_memory服务实例
-            # self.memory_manager.initialize(booku_memory_service)
-            memory_prompt = await self.memory_manager.generate_memory_prompt(self.llm_client)
+            # 加载或生成记忆提示词
+            memory_prompt = await self._load_or_generate_memory_prompt()
             self.llm_client.set_memory_prompt(memory_prompt)
             
             # 初始化历史记录管理器
@@ -127,6 +144,47 @@ class NeoTelMeService:
         except Exception as e:
             print(f"LLM组件初始化失败: {e}")
             self.llm_initialized = False
+    
+    async def _load_or_generate_memory_prompt(self) -> str:
+        """
+        加载或生成记忆提示词
+        
+        Returns:
+            str: 记忆提示词
+        """
+        # 确保数据目录存在
+        DATA_DIR.mkdir(exist_ok=True)
+        
+        # 尝试加载已存储的记忆提示词
+        if MEMORY_PROMPT_FILE.exists():
+            try:
+                with open(MEMORY_PROMPT_FILE, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    prompt = data.get('memory_prompt', '')
+                    if prompt:
+                        print("成功加载已存储的记忆提示词")
+                        return prompt
+            except Exception as e:
+                print(f"加载记忆提示词失败: {e}")
+        
+        # 生成新的记忆提示词
+        print("未找到存储的记忆提示词，正在生成新的")
+        
+        # 初始化记忆管理器
+        self.memory_manager = MemoryManager()
+        # 这里可以传入booku_memory服务实例
+        # self.memory_manager.initialize(booku_memory_service)
+        memory_prompt = await self.memory_manager.generate_memory_prompt(self.llm_client, user_nickname=self.user_nickname)
+        
+        # 存储记忆提示词
+        try:
+            with open(MEMORY_PROMPT_FILE, 'w', encoding='utf-8') as f:
+                json.dump({'memory_prompt': memory_prompt}, f, ensure_ascii=False, indent=2)
+            print("记忆提示词已存储")
+        except Exception as e:
+            print(f"存储记忆提示词失败: {e}")
+        
+        return memory_prompt
     
     async def _start_local_mode(self):
         """
