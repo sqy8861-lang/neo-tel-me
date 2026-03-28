@@ -1,6 +1,5 @@
-import aiohttp
-import json
-from typing import Optional, List
+from typing import Optional
+from openai import AsyncOpenAI
 from .llm_config import LLMConfig
 
 
@@ -15,19 +14,23 @@ class LLMClient:
             config: LLM配置
         """
         self.config = config
-        self.session = None
+        self.client = None
         self.system_prompt = ""
         self.memory_prompt = ""
     
     async def initialize(self):
         """初始化客户端"""
-        self.session = aiohttp.ClientSession()
+        # 使用 OpenAI SDK，支持自定义 base_url
+        self.client = AsyncOpenAI(
+            api_key=self.config.model.api_key,
+            base_url=self.config.model.base_url
+        )
         print("LLM客户端初始化完成")
     
     async def close(self):
         """关闭客户端"""
-        if self.session:
-            await self.session.close()
+        if self.client:
+            await self.client.close()
             print("LLM客户端已关闭")
     
     def set_system_prompt(self, prompt: str):
@@ -103,107 +106,32 @@ class LLMClient:
         Returns:
             str: 生成的回复
         """
-        if not self.session:
+        if not self.client:
             await self.initialize()
         
         max_tokens = max_tokens or self.config.model.max_tokens
         
         try:
-            if self.config.model.provider == "openai":
-                return await self._generate_openai(prompt, max_tokens)
-            elif self.config.model.provider == "anthropic":
-                return await self._generate_anthropic(prompt, max_tokens)
+            # 使用 OpenAI SDK 调用 API
+            response = await self.client.chat.completions.create(
+                model=self.config.model.model_name,
+                messages=[
+                    {"role": "system", "content": "You are a helpful assistant"},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=self.config.model.temperature,
+                max_tokens=max_tokens,
+                stream=False
+            )
+            
+            if response.choices and len(response.choices) > 0:
+                return response.choices[0].message.content.strip()
             else:
-                print(f"不支持的LLM提供商: {self.config.model.provider}")
+                print("API返回空结果")
                 return ""
         except Exception as e:
             print(f"LLM生成失败: {e}")
             return ""
-    
-    async def _generate_openai(self, prompt: str, max_tokens: int) -> str:
-        """
-        使用OpenAI API生成回复
-        
-        Args:
-            prompt: 提示词
-            max_tokens: 最大token数
-            
-        Returns:
-            str: 生成的回复
-        """
-        url = self.config.model.base_url or "https://api.openai.com/v1/chat/completions"
-        
-        headers = {
-            "Authorization": f"Bearer {self.config.model.api_key}",
-            "Content-Type": "application/json"
-        }
-        
-        payload = {
-            "model": self.config.model.model_name,
-            "messages": [
-                {"role": "system", "content": prompt},
-                {"role": "user", "content": "请直接生成回复，不要包含任何解释或格式标记。"}
-            ],
-            "temperature": self.config.model.temperature,
-            "max_tokens": max_tokens
-        }
-        
-        async with self.session.post(url, headers=headers, json=payload) as response:
-            if response.status != 200:
-                error_text = await response.text()
-                print(f"OpenAI API错误: {response.status} - {error_text}")
-                return ""
-            
-            result = await response.json()
-            
-            if "choices" in result and len(result["choices"]) > 0:
-                return result["choices"][0]["message"]["content"].strip()
-            else:
-                print("OpenAI API返回空结果")
-                return ""
-    
-    async def _generate_anthropic(self, prompt: str, max_tokens: int) -> str:
-        """
-        使用Anthropic API生成回复
-        
-        Args:
-            prompt: 提示词
-            max_tokens: 最大token数
-            
-        Returns:
-            str: 生成的回复
-        """
-        url = self.config.model.base_url or "https://api.anthropic.com/v1/messages"
-        
-        headers = {
-            "x-api-key": self.config.model.api_key,
-            "Content-Type": "application/json",
-            "anthropic-version": "2023-06-01"
-        }
-        
-        payload = {
-            "model": self.config.model.model_name,
-            "max_tokens": max_tokens,
-            "system": prompt,
-            "messages": [
-                {"role": "user", "content": "请直接生成回复，不要包含任何解释或格式标记。"}
-            ],
-            "temperature": self.config.model.temperature
-        }
-        
-        async with self.session.post(url, headers=headers, json=payload) as response:
-            if response.status != 200:
-                error_text = await response.text()
-                print(f"Anthropic API错误: {response.status} - {error_text}")
-                return ""
-            
-            result = await response.json()
-            
-            if "content" in result and len(result["content"]) > 0:
-                return result["content"][0]["text"].strip()
-            else:
-                print("Anthropic API返回空结果")
-                return ""
     
     async def generate_response(self, user_input: str, history: str) -> str:
         """

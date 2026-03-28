@@ -1,18 +1,19 @@
 import asyncio
-import websockets
-import json
-import base64
-import uuid
-import hmac
-import hashlib
+import os
+import sys
 import time
-from urllib.parse import urlencode
 from typing import Optional, Callable
+
+# 添加SDK路径到Python路径
+sdk_path = os.path.join(os.path.dirname(__file__), 'alibabacloud-nls-python-sdk')
+sys.path.append(sdk_path)
+
+import nls
 
 
 class AliyunRealtimeASR:
     """
-    阿里云实时语音识别 WebSocket 客户端
+    阿里云实时语音识别客户端（使用SDK）
     """
     
     def __init__(self, appkey: str, access_key_id: str, access_key_secret: str, sample_rate: int = 16000, format: str = "pcm"):
@@ -31,54 +32,120 @@ class AliyunRealtimeASR:
         self.access_key_secret = access_key_secret
         self.sample_rate = sample_rate
         self.format = format
-        self.ws: Optional[websockets.WebSocketClientProtocol] = None
+        self.asr = None
         self.on_result: Optional[Callable] = None  # 回调函数
         self.connected = False
-        self.task_id = str(uuid.uuid4()).replace('-', '')  # 32位唯一ID
-        self.is_ready = False  # 是否准备就绪可以发送音频
-        
+        self.is_ready = False
+        self.recognized_text = ""
+        self.token = None
+    
+    def _on_sentence_begin(self, message, *args):
+        """一句话开始回调"""
+        print("一句话开始")
+    
+    def _on_sentence_end(self, message, *args):
+        """一句话结束回调"""
+        import json
+        try:
+            result = json.loads(message)
+            text = result.get("payload", {}).get("result", "")
+            print(f"✅ [一句话结束] {text}")
+            # 保存一句话结束时的识别结果
+            if text:
+                self.recognized_text = text
+        except Exception as e:
+            print(f"解析一句话结束结果失败: {e}")
+        print("一句话结束")
+    
+    def _on_start(self, message, *args):
+        """实时识别就绪回调"""
+        print("✅ 阿里云 ASR 准备就绪，可以发送音频")
+        self.is_ready = True
+    
+    def _on_error(self, message, *args):
+        """错误回调"""
+        print(f"❌ 阿里云 ASR 错误: {message}")
+        self.connected = False
+    
+    def _on_close(self, *args):
+        """连接关闭回调"""
+        print("🔌 阿里云 ASR 连接已关闭")
+        self.connected = False
+        self.is_ready = False
+    
+    def _on_result_changed(self, message, *args):
+        """中间结果回调"""
+        import json
+        try:
+            result = json.loads(message)
+            text = result.get("payload", {}).get("result", "")
+            print(f"📝 [识别中] {text}")
+        except Exception as e:
+            print(f"解析中间结果失败: {e}")
+    
+    def _on_completed(self, message, *args):
+        """最终结果回调"""
+        import json
+        try:
+            result = json.loads(message)
+            text = result.get("payload", {}).get("result", "")
+            print(f"✅ [识别完成] {text}")
+            # 只有在text不为空时才更新识别结果
+            if text:
+                self.recognized_text = text
+            if self.on_result:
+                # 检查是否在异步上下文中
+                try:
+                    loop = asyncio.get_event_loop()
+                    loop.create_task(self.on_result(self.recognized_text))
+                except RuntimeError:
+                    # 如果不在异步上下文中，创建一个新的事件循环
+                    def run_async():
+                        asyncio.run(self.on_result(text))
+                    import threading
+                    threading.Thread(target=run_async).start()
+        except Exception as e:
+            print(f"解析最终结果失败: {e}")
+    
     def generate_token(self) -> str:
         """
-        生成阿里云认证Token
+        生成阿里云token
         
         Returns:
-            str: 认证Token
+            str: 生成的token
         """
-        # 生成时间戳
-        timestamp = str(int(time.time()))
-        # 生成签名
-        signature_str = f"{self.access_key_id}\n{timestamp}"
-        signature = hmac.new(
-            self.access_key_secret.encode('utf-8'),
-            signature_str.encode('utf-8'),
-            hashlib.sha1
-        ).digest()
-        signature_base64 = base64.b64encode(signature).decode('utf-8')
-        # 构建token
-        token = f"{self.access_key_id}:{signature_base64}:{timestamp}"
-        return token
-    
-    def generate_auth_url(self) -> str:
-        """
-        生成阿里云 WebSocket 认证 URL
+        from nls.token import getToken
         
-        Returns:
-            str: 认证URL
-        """
-        # 使用上海地域的WebSocket地址
-        url = "wss://nls-gateway-cn-shanghai.aliyuncs.com/ws/v1"
-        token = self.generate_token()
-        
-        # 构建请求参数
-        params = {
-            "token": token
-        }
-        
-        return f"{url}?{urlencode(params)}"
+        try:
+            token = getToken(self.access_key_id, self.access_key_secret)
+            print(f"使用SDK获取的token: {token}")
+            return token
+        except Exception as e:
+            print(f"获取token失败: {e}")
+            # 手动生成token作为备用
+            import time
+            import base64
+            import hmac
+            import hashlib
+            
+            # 生成时间戳
+            timestamp = str(int(time.time()))
+            # 生成签名
+            signature_str = f"{self.access_key_id}\n{timestamp}"
+            signature = hmac.new(
+                self.access_key_secret.encode('utf-8'),
+                signature_str.encode('utf-8'),
+                hashlib.sha1
+            ).digest()
+            signature_base64 = base64.b64encode(signature).decode('utf-8')
+            # 构建token
+            token = f"{self.access_key_id}:{signature_base64}:{timestamp}"
+            print(f"手动生成的token: {token}")
+            return token
     
     async def connect(self, on_result_callback: Callable) -> bool:
         """
-        连接阿里云 ASR WebSocket
+        连接阿里云 ASR
         
         Args:
             on_result_callback: 识别结果回调函数
@@ -87,101 +154,57 @@ class AliyunRealtimeASR:
             bool: 连接是否成功
         """
         self.on_result = on_result_callback
-        uri = self.generate_auth_url()
         
         try:
-            self.ws = await websockets.connect(uri)
-            self.connected = True
-            print("✅ 阿里云 ASR 已连接")
+            # 生成token
+            self.token = self.generate_token()
+            print(f"生成的token: {self.token}")
             
-            # 启动接收任务
-            asyncio.create_task(self._receive_loop())
+            # 创建NlsSpeechTranscriber实例
+            self.asr = nls.NlsSpeechTranscriber(
+                url="wss://nls-gateway.cn-shanghai.aliyuncs.com/ws/v1",
+                token=self.token,
+                appkey=self.appkey,
+                on_sentence_begin=self._on_sentence_begin,
+                on_sentence_end=self._on_sentence_end,
+                on_start=self._on_start,
+                on_result_changed=self._on_result_changed,
+                on_completed=self._on_completed,
+                on_error=self._on_error,
+                on_close=self._on_close,
+                callback_args=[self]
+            )
             
-            # 发送StartTranscription指令
-            await self._send_start_transcription()
-            
-            # 等待准备就绪
-            for _ in range(10):
-                if self.is_ready:
-                    return True
-                await asyncio.sleep(0.5)
-            
-            print("❌ 阿里云 ASR 准备超时")
-            return False
+            # 启动实时识别
+            print("正在连接阿里云ASR服务...")
+            try:
+                # 启动实时识别
+                self.asr.start(
+                    aformat=self.format,
+                    sample_rate=self.sample_rate,
+                    enable_intermediate_result=True,
+                    enable_punctuation_prediction=True,
+                    enable_inverse_text_normalization=True
+                )
+                
+                # 等待准备就绪
+                print("等待ASR服务准备就绪...")
+                for _ in range(20):  # 增加等待时间
+                    if self.is_ready:
+                        print("✅ 阿里云 ASR 已连接并准备就绪")
+                        self.connected = True
+                        return True
+                    await asyncio.sleep(0.5)
+                print("❌ 阿里云 ASR 准备超时")
+                return False
+            except Exception as e:
+                print(f"❌ 阿里云 ASR 启动失败: {e}")
+                return False
+                
         except Exception as e:
             print(f"❌ 阿里云 ASR 连接失败: {e}")
             return False
     
-    async def _send_start_transcription(self):
-        """
-        发送StartTranscription指令
-        """
-        if not self.connected or not self.ws:
-            return
-        
-        message_id = str(uuid.uuid4()).replace('-', '')  # 32位唯一ID
-        
-        message = {
-            "header": {
-                "message_id": message_id,
-                "task_id": self.task_id,
-                "namespace": "SpeechTranscriber",
-                "name": "StartTranscription",
-                "appkey": self.appkey
-            },
-            "payload": {
-                "format": self.format,
-                "sample_rate": self.sample_rate,
-                "enable_intermediate_result": True,  # 返回中间结果
-                "enable_punctuation_prediction": True,  # 标点预测
-                "enable_inverse_text_normalization": True  # ITN
-            }
-        }
-        
-        try:
-            await self.ws.send(json.dumps(message))
-            print("📢 已发送 StartTranscription 指令")
-        except Exception as e:
-            print(f"发送 StartTranscription 指令失败: {e}")
-    
-    async def _receive_loop(self):
-        """
-        接收 ASR 结果
-        """
-        try:
-            async for message in self.ws:
-                result = json.loads(message)
-                
-                # 处理识别结果
-                if result.get("header", {}).get("name") == "TranscriptionStarted":
-                    # 服务端准备就绪
-                    self.is_ready = True
-                    print("✅ 阿里云 ASR 准备就绪，可以发送音频")
-                    
-                elif result.get("header", {}).get("name") == "TranscriptionResultChanged":
-                    # 中间结果（说话过程中实时返回）
-                    text = result["payload"]["result"]
-                    print(f"📝 [识别中] {text}")
-                    
-                elif result.get("header", {}).get("name") == "SentenceEnd":
-                    # 一句话结束（最终确认结果）
-                    text = result["payload"]["result"]
-                    print(f"✅ [识别完成] {text}")
-                    if self.on_result:
-                        await self.on_result(text)
-                        
-                elif result.get("header", {}).get("name") == "TranscriptionCompleted":
-                    print("🎉 识别会话完成")
-                
-                elif result.get("header", {}).get("status") != 20000000:
-                    # 错误信息
-                    status_message = result.get("header", {}).get("status_message", "未知错误")
-                    print(f"❌ 阿里云 ASR 错误: {status_message}")
-                    
-        except Exception as e:
-            print(f"ASR 接收错误: {e}")
-            self.connected = False
-            
     async def send_audio(self, audio_bytes: bytes) -> bool:
         """
         发送音频数据到 ASR
@@ -192,53 +215,45 @@ class AliyunRealtimeASR:
         Returns:
             bool: 发送是否成功
         """
-        if not self.connected or not self.ws or not self.is_ready:
+        if not self.connected or not self.asr or not self.is_ready:
             return False
             
         try:
-            # 使用二进制帧发送音频数据
-            await self.ws.send(audio_bytes)
-            return True
+            # 发送音频数据
+            success = self.asr.send_audio(audio_bytes)
+            return success
         except Exception as e:
             print(f"发送音频失败: {e}")
             return False
     
     async def stop_transcription(self):
         """
-        发送StopTranscription指令
+        停止识别
         """
-        if not self.connected or not self.ws:
-            return
-        
-        message_id = str(uuid.uuid4()).replace('-', '')  # 32位唯一ID
-        
-        message = {
-            "header": {
-                "message_id": message_id,
-                "task_id": self.task_id,
-                "namespace": "SpeechTranscriber",
-                "name": "StopTranscription",
-                "appkey": self.appkey
-            }
-        }
-        
-        try:
-            await self.ws.send(json.dumps(message))
-            print("📢 已发送 StopTranscription 指令")
-        except Exception as e:
-            print(f"发送 StopTranscription 指令失败: {e}")
+        if self.asr:
+            try:
+                success = self.asr.stop()
+                print(f"📢 已停止识别: {success}")
+            except Exception as e:
+                print(f"停止识别失败: {e}")
     
     async def close(self):
         """
         关闭连接
         """
-        if self.ws:
-            # 发送StopTranscription指令
-            await self.stop_transcription()
-            # 等待一段时间让服务端处理
-            await asyncio.sleep(0.5)
-            # 关闭WebSocket连接
-            await self.ws.close()
-            self.connected = False
-            self.is_ready = False
-            print("🔌 阿里云 ASR 连接已关闭")
+        if self.asr:
+            try:
+                # 停止识别
+                await self.stop_transcription()
+                # 等待一段时间让服务端处理
+                await asyncio.sleep(0.5)
+                # 关闭连接
+                self.asr.shutdown()
+                print("🔌 阿里云 ASR 连接已关闭")
+            except Exception as e:
+                print(f"关闭连接失败: {e}")
+        # 无论是否成功关闭，都重置状态
+        self.connected = False
+        self.is_ready = False
+        self.asr = None
+        self.token = None

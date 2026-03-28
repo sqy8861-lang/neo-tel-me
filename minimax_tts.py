@@ -1,107 +1,125 @@
 import asyncio
 import websockets
 import json
-import base64
-from typing import Optional
-
+import ssl
+import os
 
 class MiniMaxTTS:
-    """
-    MiniMax TTS 客户端
-    """
-    
-    def __init__(self, api_key: str, voice_id: str, model: str = "speech-2.8-hd"):
-        """
-        初始化MiniMax TTS客户端
-        
-        Args:
-            api_key: MiniMax API密钥
-            voice_id: 语音ID
-            model: TTS模型
-        """
+    def __init__(self, api_key, voice_id, model="speech-2.8-hd"):
         self.api_key = api_key
         self.voice_id = voice_id
         self.model = model
-        self.base_url = "wss://api.minimax.com/ws/v1/t2a_v2"
-        self.is_speaking = False
-        self.interrupt_event = asyncio.Event()
-        
-    async def tts_stream(self, text: str, speed: float = 1.0, volume: float = 1.0, 
-                         pitch: float = 0.0, sample_rate: int = 24000):
-        """
-        MiniMax TTS 流式播放（可被中断）
-        
-        Args:
-            text: 要合成的文本
-            speed: 语速
-            volume: 音量
-            pitch: 音调
-            sample_rate: 采样率
-            
-        Yields:
-            bytes: 音频数据
-        """
-        headers = {"Authorization": f"Bearer {self.api_key}"}
-        
+        self.is_playing_flag = False
+        self.current_task = None
+        self.current_websocket = None
+
+    async def tts_stream(self, text, speed=1, volume=1, pitch=0, sample_rate=32000, format="mp3"):
+        """生成TTS音频流"""
+        self.is_playing_flag = True
         try:
-            async with websockets.connect(self.base_url, extra_headers=headers) as ws:
-                request = {
-                    "model": self.model,
-                    "text": text,
-                    "stream": True,
-                    "voice_setting": {
-                        "voice_id": self.voice_id,
-                        "speed": speed,
-                        "vol": volume,
-                        "pitch": pitch
-                    },
-                    "audio_setting": {
-                        "sample_rate": sample_rate,
-                        "format": "pcm"
-                    }
-                }
-                
-                await ws.send(json.dumps(request))
-                
-                self.is_speaking = True
-                self.interrupt_event.clear()
-                
+            # 建立WebSocket连接
+            ws = await self._establish_connection()
+            if not ws:
+                yield b""
+                return
+
+            self.current_websocket = ws
+
+            # 开始任务
+            if not await self._start_task(ws, speed, volume, pitch, sample_rate, format):
+                await self._close_connection(ws)
+                yield b""
+                return
+
+            # 发送文本并接收音频数据
+            await ws.send(json.dumps({
+                "event": "task_continue",
+                "text": text
+            }))
+
+            while True:
                 try:
-                    async for message in ws:
-                        # 检查打断信号
-                        if self.interrupt_event.is_set():
-                            print("🛑 TTS 被打断")
-                            break
-                        
-                        resp = json.loads(message)
-                        if resp.get("data", {}).get("audio"):
-                            audio_data = base64.b64decode(resp["data"]["audio"])
-                            # 这里返回音频数据，由调用方处理播放
-                            yield audio_data
-                        
-                        if resp.get("data", {}).get("status") == "finished":
-                            break
-                            
-                finally:
-                    self.is_speaking = False
-                    self.interrupt_event.clear()
+                    response = json.loads(await ws.recv())
+
+                    if "data" in response and "audio" in response["data"]:
+                        audio = response["data"]["audio"]
+                        if audio:
+                            audio_bytes = bytes.fromhex(audio)
+                            yield audio_bytes
+
+                    if response.get("is_final"):
+                        break
+
+                except Exception as e:
+                    print(f"TTS stream error: {e}")
+                    break
+
+        finally:
+            if self.current_websocket:
+                await self._close_connection(self.current_websocket)
+            self.is_playing_flag = False
+            self.current_task = None
+            self.current_websocket = None
+
+    async def _establish_connection(self):
+        """建立WebSocket连接"""
+        url = "wss://api.minimax.io/ws/v1/t2a_v2"
+        headers = {"Authorization": f"Bearer {self.api_key}"}
+
+        ssl_context = ssl.create_default_context()
+        ssl_context.check_hostname = False
+        ssl_context.verify_mode = ssl.CERT_NONE
+
+        try:
+            ws = await websockets.connect(url, additional_headers=headers, ssl=ssl_context)
+            connected = json.loads(await ws.recv())
+            if connected.get("event") == "connected_success":
+                return ws
+            return None
         except Exception as e:
-            print(f"TTS 错误: {e}")
-            self.is_speaking = False
-            self.interrupt_event.clear()
-    
+            print(f"Connection failed: {e}")
+            return None
+
+    async def _start_task(self, websocket, speed, volume, pitch, sample_rate, format):
+        """发送任务开始请求"""
+        start_msg = {
+            "event": "task_start",
+            "model": self.model,
+            "voice_setting": {
+                "voice_id": self.voice_id,
+                "speed": speed,
+                "vol": volume,
+                "pitch": pitch,
+                "english_normalization": False
+            },
+            "audio_setting": {
+                "sample_rate": sample_rate,
+                "bitrate": 128000,
+                "format": format,
+                "channel": 1
+            }
+        }
+        await websocket.send(json.dumps(start_msg))
+        response = json.loads(await websocket.recv())
+        return response.get("event") == "task_started"
+
+    async def _close_connection(self, websocket):
+        """关闭连接"""
+        if websocket:
+            try:
+                await websocket.send(json.dumps({"event": "task_finish"}))
+                await websocket.close()
+            except Exception:
+                pass
+
+    def is_playing(self):
+        """检查是否正在播放"""
+        return self.is_playing_flag
+
     def interrupt(self):
-        """
-        打断当前TTS播放
-        """
-        self.interrupt_event.set()
-        print("👤 打断 TTS 播放")
-    
-    def is_playing(self) -> bool:
-        """
-        检查是否正在播放
-        
-        Returns:
-            bool: 是否正在播放
-        """
-        return self.is_speaking
+        """打断播放"""
+        self.is_playing_flag = False
+        if self.current_task:
+            self.current_task.cancel()
+        if self.current_websocket:
+            asyncio.create_task(self._close_connection(self.current_websocket))
