@@ -9,6 +9,7 @@ from .llm_client import LLMClient
 from .prompt_refiner import PromptRefiner
 from .memory_manager import MemoryManager
 from .history_manager import HistoryManager
+from .websocket_handler import WebSocketHandler
 
 
 class NeoTelMeService:
@@ -43,6 +44,10 @@ class NeoTelMeService:
         self.memory_manager = None
         self.history_manager = None
         self.llm_initialized = False
+        
+        # WebSocket相关组件
+        self.websocket_handler = None
+        self.websocket_task = None
     
     def _cfg(self):
         """
@@ -61,22 +66,6 @@ class NeoTelMeService:
             # 初始化LLM组件
             await self._initialize_llm()
             
-            # 初始化音频管理器
-            self.audio_manager = AudioManager(
-                sample_rate=self._cfg().audio.sample_rate,
-                chunk=self._cfg().audio.chunk,
-                vad_threshold=self._cfg().audio.vad_threshold
-            )
-            
-            # 初始化阿里云ASR
-            self.asr = AliyunRealtimeASR(
-                appkey=self._cfg().aliyun_asr.appkey,
-                access_key_id=self._cfg().aliyun_asr.access_key_id,
-                access_key_secret=self._cfg().aliyun_asr.access_key_secret,
-                sample_rate=self._cfg().aliyun_asr.sample_rate,
-                format=self._cfg().aliyun_asr.format
-            )
-            
             # 初始化MiniMax TTS
             self.tts = MiniMaxTTS(
                 api_key=self._cfg().minimax_tts.api_key,
@@ -84,21 +73,16 @@ class NeoTelMeService:
                 model=self._cfg().minimax_tts.model
             )
             
-            # 连接ASR
-            connected = await self.asr.connect(self._on_asr_result)
-            if not connected:
-                print("❌ ASR 连接失败，服务启动失败")
-                return False
-            
-            # 开始音频采集
-            self.audio_manager.start_recording(
-                audio_callback=self._on_audio_data,
-                vad_callback=self._on_vad
-            )
+            # 根据配置选择模式
+            if self._cfg().websocket_enabled:
+                # WebSocket模式（用于H5前端）
+                await self._start_websocket_mode()
+            else:
+                # 本地模式（使用PyAudio）
+                await self._start_local_mode()
             
             self.is_running = True
             print("Neo-tel-me 服务已启动！")
-            print("提示：说话即可，AI 会自动回复；大声说话可打断 AI")
             return True
         except Exception as e:
             print(f"服务启动失败: {e}")
@@ -144,6 +128,68 @@ class NeoTelMeService:
             print(f"LLM组件初始化失败: {e}")
             self.llm_initialized = False
     
+    async def _start_local_mode(self):
+        """
+        启动本地模式（使用PyAudio）
+        """
+        try:
+            # 初始化音频管理器
+            self.audio_manager = AudioManager(
+                sample_rate=self._cfg().audio_sample_rate,
+                chunk=self._cfg().audio_chunk,
+                vad_threshold=self._cfg().audio_vad_threshold
+            )
+            
+            # 初始化阿里云ASR
+            self.asr = AliyunRealtimeASR(
+                appkey=self._cfg().aliyun_asr_appkey,
+                access_key_id=self._cfg().aliyun_asr_access_key_id,
+                access_key_secret=self._cfg().aliyun_asr_access_key_secret,
+                sample_rate=self._cfg().aliyun_asr_sample_rate,
+                format=self._cfg().aliyun_asr_format
+            )
+            
+            # 连接ASR
+            connected = await self.asr.connect(self._on_asr_result)
+            if not connected:
+                print("❌ ASR 连接失败，服务启动失败")
+                raise Exception("ASR 连接失败")
+            
+            # 开始音频采集
+            self.audio_manager.start_recording(
+                audio_callback=self._on_audio_data,
+                vad_callback=self._on_vad
+            )
+            
+            print("本地模式已启动")
+            print("提示：说话即可，AI 会自动回复；大声说话可打断 AI")
+            
+        except Exception as e:
+            print(f"本地模式启动失败: {e}")
+            raise
+    
+    async def _start_websocket_mode(self):
+        """
+        启动WebSocket模式（用于H5前端）
+        """
+        try:
+            # 初始化WebSocket处理器
+            self.websocket_handler = WebSocketHandler(self._cfg())
+            
+            # 设置回调函数
+            self.websocket_handler.on_audio_data = self._on_websocket_audio_data
+            self.websocket_handler.on_client_connected = self._on_websocket_client_connected
+            self.websocket_handler.on_client_disconnected = self._on_websocket_client_disconnected
+            
+            # 启动WebSocket服务器（作为后台任务）
+            self.websocket_task = asyncio.create_task(self.websocket_handler.start())
+            
+            print(f"WebSocket模式已启动，监听 {self._cfg().websocket_host}:{self._cfg().websocket_port}")
+            
+        except Exception as e:
+            print(f"WebSocket模式启动失败: {e}")
+            raise
+    
     async def stop(self):
         """
         停止服务
@@ -170,6 +216,17 @@ class NeoTelMeService:
             # 关闭LLM客户端
             if self.llm_client:
                 await self.llm_client.close()
+            
+            # 停止WebSocket服务器
+            if self.websocket_handler:
+                await self.websocket_handler.stop()
+            
+            if self.websocket_task:
+                self.websocket_task.cancel()
+                try:
+                    await self.websocket_task
+                except asyncio.CancelledError:
+                    pass
             
             print("Neo-tel-me 服务已停止")
         except Exception as e:
@@ -321,3 +378,155 @@ class NeoTelMeService:
             bool: 服务是否运行
         """
         return self.is_running
+    
+    async def _on_websocket_audio_data(self, websocket, audio_data: bytes):
+        """
+        WebSocket音频数据回调
+        
+        Args:
+            websocket: WebSocket连接
+            audio_data: 音频数据
+        """
+        try:
+            # 为每个客户端创建独立的ASR连接（如果还没有）
+            if not hasattr(websocket, 'asr') or not websocket.asr:
+                websocket.asr = AliyunRealtimeASR(
+                    appkey=self._cfg().aliyun_asr_appkey,
+                    access_key_id=self._cfg().aliyun_asr_access_key_id,
+                    access_key_secret=self._cfg().aliyun_asr_access_key_secret,
+                    sample_rate=self._cfg().aliyun_asr_sample_rate,
+                    format=self._cfg().aliyun_asr_format
+                )
+                
+                # 连接ASR，设置回调函数
+                async def on_asr_result(text: str):
+                    await self._on_websocket_asr_result(websocket, text)
+                
+                connected = await websocket.asr.connect(on_asr_result)
+                if not connected:
+                    print(f"客户端 {websocket.remote_address} ASR 连接失败")
+                    return
+            
+            # 发送音频数据到ASR
+            if websocket.asr and websocket.asr.connected:
+                await websocket.asr.send_audio(audio_data)
+            
+        except Exception as e:
+            print(f"处理WebSocket音频数据错误: {e}")
+    
+    async def _on_websocket_asr_result(self, websocket, text: str):
+        """
+        WebSocket ASR识别结果回调
+        
+        Args:
+            websocket: WebSocket连接
+            text: 识别文本
+        """
+        try:
+            print(f"客户端 {websocket.remote_address} 用户说: {text}")
+            
+            # 为每个客户端创建独立的历史记录管理器
+            if not hasattr(websocket, 'history_manager'):
+                websocket.history_manager = HistoryManager(max_history=self._cfg().llm_prompt_max_history)
+            
+            # 添加用户消息到历史记录
+            websocket.history_manager.add_user_message(text)
+            
+            # 使用LLM生成回复
+            reply = await self._generate_reply_for_websocket(websocket, text)
+            print(f"客户端 {websocket.remote_address} AI 说: {reply}")
+            
+            # 添加AI回复到历史记录
+            websocket.history_manager.add_assistant_message(reply)
+            
+            # 生成TTS并发送给客户端
+            await self._generate_and_send_tts_to_websocket(websocket, reply)
+            
+        except Exception as e:
+            print(f"处理WebSocket ASR结果错误: {e}")
+    
+    async def _generate_reply_for_websocket(self, websocket, text: str) -> str:
+        """
+        为WebSocket客户端生成AI回复
+        
+        Args:
+            websocket: WebSocket连接
+            text: 用户输入文本
+            
+        Returns:
+            str: AI回复
+        """
+        if not self.llm_initialized or not self.llm_client:
+            return self._get_mock_reply(text)
+        
+        try:
+            # 获取历史记录
+            history_text = websocket.history_manager.format_for_llm() if hasattr(websocket, 'history_manager') else "暂无对话历史"
+            
+            # 使用LLM生成回复
+            reply = await self.llm_client.generate_response(text, history_text)
+            
+            if reply:
+                return reply
+            else:
+                print("LLM返回空回复，使用模拟回复")
+                return self._get_mock_reply(text)
+        except Exception as e:
+            print(f"LLM生成回复失败: {e}")
+            return self._get_mock_reply(text)
+    
+    async def _generate_and_send_tts_to_websocket(self, websocket, text: str):
+        """
+        生成TTS并发送给WebSocket客户端
+        
+        Args:
+            websocket: WebSocket连接
+            text: 要合成的文本
+        """
+        if not self.tts:
+            return
+        
+        try:
+            # 生成TTS音频数据
+            audio_data = b''
+            async for chunk in self.tts.tts_stream(
+                text=text,
+                speed=self._cfg().minimax_tts_speed,
+                volume=self._cfg().minimax_tts_volume,
+                pitch=self._cfg().minimax_tts_pitch,
+                sample_rate=self._cfg().minimax_tts_sample_rate,
+                format=self._cfg().websocket_audio_format
+            ):
+                audio_data += chunk
+            
+            # 发送音频数据给客户端
+            if audio_data and self.websocket_handler:
+                await self.websocket_handler.send_audio_to_client(websocket, audio_data, text)
+            
+        except Exception as e:
+            print(f"生成并发送TTS错误: {e}")
+    
+    async def _on_websocket_client_connected(self, websocket):
+        """
+        WebSocket客户端连接回调
+        
+        Args:
+            websocket: WebSocket连接
+        """
+        print(f"客户端 {websocket.remote_address} 已连接")
+    
+    async def _on_websocket_client_disconnected(self, websocket):
+        """
+        WebSocket客户端断开回调
+        
+        Args:
+            websocket: WebSocket连接
+        """
+        try:
+            # 关闭客户端的ASR连接
+            if hasattr(websocket, 'asr') and websocket.asr:
+                await websocket.asr.close()
+            
+            print(f"客户端 {websocket.remote_address} 已断开")
+        except Exception as e:
+            print(f"处理客户端断开错误: {e}")
