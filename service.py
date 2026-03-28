@@ -21,7 +21,8 @@ class NeoTelMeService(BaseService):
     
     service_name: str = "neo_tel_me"
     service_description: str = "实时语音对话服务，支持阿里云ASR和MiniMax TTS"
-    version: str = "1.0.0"
+    version: str = "1.1.0"
+    update_info: str = "更新：集成阿里云智能语音交互Python SDK，实现Token自动获取和实时语音识别功能"
     """
     Neo-tel-me 服务
     """
@@ -117,8 +118,15 @@ class NeoTelMeService(BaseService):
         初始化LLM组件
         """
         try:
-            # 加载LLM配置
-            self.llm_config = LLMConfig.load_from_core_config()
+            # 加载LLM配置（从插件自身的配置）
+            cfg = self._cfg()
+            self.llm_config = LLMConfig()
+            self.llm_config.model.provider = cfg.llm.model.provider
+            self.llm_config.model.model_name = cfg.llm.model.model_name
+            self.llm_config.model.api_key = cfg.llm.model.api_key
+            self.llm_config.model.base_url = cfg.llm.model.base_url
+            self.llm_config.model.temperature = cfg.llm.model.temperature
+            self.llm_config.model.max_tokens = cfg.llm.model.max_tokens
             
             # 初始化LLM客户端
             self.llm_client = LLMClient(self.llm_config)
@@ -137,7 +145,7 @@ class NeoTelMeService(BaseService):
             self.llm_client.set_memory_prompt(memory_prompt)
             
             # 初始化历史记录管理器
-            self.history_manager = HistoryManager(max_history=4)
+            self.history_manager = HistoryManager(max_history=cfg.llm.prompt.max_history)
             
             self.llm_initialized = True
             logger.info("LLM组件初始化完成")

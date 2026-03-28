@@ -44,7 +44,39 @@ class NeoTelMeConfig(BaseConfig):
         chunk: int = Field(default=1024, description="音频块大小")
         vad_threshold: int = Field(default=800, description="语音活动检测阈值")
     
+    @config_section("llm")
+    class LLMSection(SectionBase):
+        """LLM配置"""
+        
+        @config_section("model")
+        class ModelSection(SectionBase):
+            """模型配置"""
+            provider: str = Field(default="openai", description="模型提供商")
+            model_name: str = Field(default="gpt-4", description="模型名称")
+            api_key: str = Field(default="", description="API密钥")
+            base_url: str = Field(default=None, description="API基础URL")
+            temperature: float = Field(default=0.7, description="温度参数")
+            max_tokens: int = Field(default=1000, description="最大token数")
+        
+        @config_section("prompt")
+        class PromptSection(SectionBase):
+            """提示词配置"""
+            personality_prompt: str = Field(default="", description="性格提示词")
+            memory_prompt: str = Field(default="", description="记忆提示词")
+            max_history: int = Field(default=4, description="最近历史记录数量")
+        
+        @config_section("memory")
+        class MemorySection(SectionBase):
+            """记忆配置"""
+            recent_count: int = Field(default=5, description="近期记忆数量")
+            important_only: bool = Field(default=True, description="只获取重要记忆")
+        
+        model: ModelSection = Field(default_factory=ModelSection)
+        prompt: PromptSection = Field(default_factory=PromptSection)
+        memory: MemorySection = Field(default_factory=MemorySection)
+    
     plugin: PluginSection = Field(default_factory=PluginSection)
     aliyun_asr: AliyunASRSection = Field(default_factory=AliyunASRSection)
     minimax_tts: MiniMaxTTSSection = Field(default_factory=MiniMaxTTSSection)
     audio: AudioSection = Field(default_factory=AudioSection)
+    llm: LLMSection = Field(default_factory=LLMSection)
