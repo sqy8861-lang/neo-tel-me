@@ -42,37 +42,8 @@ class MemoryManager:
         Returns:
             List[MemoryItem]: 近期记忆列表
         """
-        if not self.booku_memory_service:
-            print("booku_memory服务未初始化，使用空记忆")
-            return []
-        
-        try:
-            # 这里需要调用booku_memory的读取接口
-            # 由于booku_memory的具体接口需要进一步了解，这里使用模拟数据
-            # 实际实现时需要替换为真实的booku_memory调用
-            
-            # 模拟数据
-            mock_memories = [
-                MemoryItem(
-                    content="用户今天心情不错，聊了很多有趣的话题",
-                    importance=0.6,
-                    timestamp="2026-03-27 10:00",
-                    type="recent"
-                ),
-                MemoryItem(
-                    content="用户提到想尝试新的游戏",
-                    importance=0.5,
-                    timestamp="2026-03-27 09:30",
-                    type="recent"
-                ),
-            ]
-            
-            self.recent_memories = mock_memories[:count]
-            print(f"获取到 {len(self.recent_memories)} 条近期记忆")
-            return self.recent_memories
-        except Exception as e:
-            print(f"获取近期记忆失败: {e}")
-            return []
+        # 直接返回空列表，不再使用booku_memory服务
+        return []
     
     async def fetch_important_memories(self, count: int = 3) -> List[MemoryItem]:
         """
@@ -84,36 +55,8 @@ class MemoryManager:
         Returns:
             List[MemoryItem]: 重要记忆列表
         """
-        if not self.booku_memory_service:
-            print("booku_memory服务未初始化，使用空记忆")
-            return []
-        
-        try:
-            # 这里需要调用booku_memory的读取接口
-            # 实际实现时需要替换为真实的booku_memory调用
-            
-            # 模拟数据
-            mock_memories = [
-                MemoryItem(
-                    content="用户第一次使用连麦功能，表现得很兴奋",
-                    importance=0.9,
-                    timestamp="2026-03-20 15:00",
-                    type="important"
-                ),
-                MemoryItem(
-                    content="用户提到很喜欢辞安的性格",
-                    importance=0.85,
-                    timestamp="2026-03-18 20:00",
-                    type="important"
-                ),
-            ]
-            
-            self.important_memories = mock_memories[:count]
-            print(f"获取到 {len(self.important_memories)} 条重要记忆")
-            return self.important_memories
-        except Exception as e:
-            print(f"获取重要记忆失败: {e}")
-            return []
+        # 直接返回空列表，不再使用booku_memory服务
+        return []
     
     async def fetch_relationship_info(self) -> str:
         """
@@ -122,28 +65,16 @@ class MemoryManager:
         Returns:
             str: 关系信息
         """
-        if not self.booku_memory_service:
-            print("booku_memory服务未初始化，使用默认关系")
-            return "用户是辞安的哥哥，关系亲密，辞安对他有特殊依赖。"
-        
-        try:
-            # 这里需要调用booku_memory的读取接口
-            # 实际实现时需要替换为真实的booku_memory调用
-            
-            # 模拟数据
-            self.relationship_info = "用户是辞安的哥哥，关系亲密，辞安对他有特殊依赖。"
-            print("获取到关系信息")
-            return self.relationship_info
-        except Exception as e:
-            print(f"获取关系信息失败: {e}")
-            return "用户是辞安的哥哥，关系亲密。"
+        # 直接返回默认关系，不再使用booku_memory服务
+        return "用户是辞安的哥哥，关系亲密，辞安对他有特殊依赖。"
     
-    async def generate_memory_prompt(self, llm_client=None) -> str:
+    async def generate_memory_prompt(self, llm_client=None, user_nickname: str = "") -> str:
         """
         生成记忆提示词（200字左右）
         
         Args:
             llm_client: LLM客户端（可选）
+            user_nickname: 用户昵称，用于搜索记忆
             
         Returns:
             str: 记忆提示词
@@ -153,6 +84,12 @@ class MemoryManager:
         important_memories = await self.fetch_important_memories()
         relationship_info = await self.fetch_relationship_info()
         
+        # 如果有用户昵称，使用用户昵称搜索记忆
+        if user_nickname:
+            search_memories = await self.search_memories_by_keyword(user_nickname)
+        else:
+            search_memories = []
+        
         # 构建原始记忆内容
         memory_content = f"""关系信息：{relationship_info}
 
@@ -160,7 +97,10 @@ class MemoryManager:
 {self._format_memories(recent_memories)}
 
 重要记忆：
-{self._format_memories(important_memories)}"""
+{self._format_memories(important_memories)}
+
+用户相关记忆：
+{self._format_memories(search_memories)}"""
         
         print(f"原始记忆内容: {len(memory_content)}字")
         
