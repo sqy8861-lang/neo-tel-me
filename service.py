@@ -71,11 +71,17 @@ class NeoTelMeService:
         """
         return self.config
     
-    async def start(self):
+    async def start(self, user_nickname: str = ""):
         """
         启动服务
+        
+        Args:
+            user_nickname: 用户昵称，用于连麦时标识用户
         """
         try:
+            # 存储用户昵称
+            self.user_nickname = user_nickname
+            
             # 初始化LLM组件
             await self._initialize_llm()
             
@@ -87,7 +93,7 @@ class NeoTelMeService:
             )
             
             # 根据配置选择模式
-            if self._cfg().websocket_enabled:
+            if self._cfg().websocket.enabled:
                 # WebSocket模式（用于H5前端）
                 await self._start_websocket_mode()
             else:
@@ -95,7 +101,7 @@ class NeoTelMeService:
                 await self._start_local_mode()
             
             self.is_running = True
-            print("Neo-tel-me 服务已启动！")
+            print(f"Neo-tel-me 服务已启动！用户昵称: {self.user_nickname}")
             return True
         except Exception as e:
             print(f"服务启动失败: {e}")
