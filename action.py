@@ -1,4 +1,7 @@
 from src.core.components.base.action import BaseAction
+from src.kernel.logger import get_logger
+
+logger = get_logger("neo_tel_me")
 
 
 class NeoTelMeAction(BaseAction):
@@ -25,26 +28,17 @@ class NeoTelMeAction(BaseAction):
             success = await neo_tel_me_service.start(user_nickname=user_nickname)
             if success:
                 # 检查是否启用了 WebSocket 模式
-                from .plugin import NeoTelMePlugin
-                import inspect
-                
-                # 获取配置对象
-                plugin_instance = None
-                for frame in inspect.stack():
-                    if 'self' in frame[0].f_locals:
-                        instance = frame[0].f_locals['self']
-                        if isinstance(instance, NeoTelMePlugin):
-                            plugin_instance = instance
-                            break
-                
-                if plugin_instance and hasattr(plugin_instance, 'config'):
-                    cfg = plugin_instance.config
+                try:
+                    cfg = neo_tel_me_service._cfg()
                     if hasattr(cfg, 'websocket') and cfg.websocket.enabled:
                         host = cfg.websocket.host
                         port = cfg.websocket.port
                         # 构建网页链接
                         web_url = f"http://{host}:{port}"
                         return True, f"Neo-tel-me 服务已成功启动，网页链接：{web_url}"
+                except Exception as e:
+                    # 如果获取配置失败，返回普通成功消息
+                    logger.error(f"获取配置失败: {e}")
                 
                 return True, "Neo-tel-me 服务已成功启动"
             else:
