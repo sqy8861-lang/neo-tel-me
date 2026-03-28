@@ -22,7 +22,11 @@ from llm_client import LLMClient
 from prompt_refiner import PromptRefiner
 
 # 提示词存储路径
-DATA_DIR = Path("data")
+import os
+# 计算主项目根目录（向上一级）
+PROJECT_ROOT = Path(__file__).parent.parent
+# 在data目录下创建专门的插件文件夹
+DATA_DIR = PROJECT_ROOT / "data" / "neo_tel_me"
 SYSTEM_PROMPT_FILE = DATA_DIR / "system_prompt.json"
 
 
