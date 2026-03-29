@@ -31,10 +31,16 @@ class NeoTelMeAction(BaseAction):
                 try:
                     cfg = neo_tel_me_service._cfg()
                     if hasattr(cfg, 'websocket') and cfg.websocket.enabled:
-                        host = cfg.websocket.host
+                        # 优先使用 public_ip，如果未配置则使用 host
+                        host = getattr(cfg.websocket, 'public_ip', '') or cfg.websocket.host
                         port = cfg.websocket.port
+                        # 根据 SSL 配置选择协议
+                        use_ssl = getattr(cfg.websocket, 'use_ssl', False)
+                        protocol = "https" if use_ssl else "http"
                         # 构建网页链接
-                        web_url = f"http://{host}:{port}"
+                        web_url = f"{protocol}://{host}:{port}"
+                        # 直接发送网页链接给用户
+                        await self._send_to_stream(f"Neo-tel-me 服务已成功启动，网页链接：{web_url}")
                         return True, f"Neo-tel-me 服务已成功启动，网页链接：{web_url}"
                 except Exception as e:
                     # 如果获取配置失败，返回普通成功消息

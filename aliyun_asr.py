@@ -29,11 +29,14 @@ class AliyunRealtimeASR:
         self.sample_rate = sample_rate
         self.format = format
         self.asr = None
-        self.on_result: Optional[Callable] = None  # 回调函数
+        self.on_result: Optional[Callable] = None
         self.connected = False
         self.is_ready = False
         self.recognized_text = ""
         self.token = None
+        self.event_loop: Optional[asyncio.AbstractEventLoop] = None
+        self.last_callback_text = ""
+        self.last_callback_time = 0
     
     def _on_sentence_begin(self, message, *args):
         """一句话开始回调"""
@@ -45,29 +48,63 @@ class AliyunRealtimeASR:
         try:
             result = json.loads(message)
             text = result.get("payload", {}).get("result", "")
-            print(f"✅ [一句话结束] {text}")
-            # 保存一句话结束时的识别结果
+            print(f"[OK] [一句话结束] {text}")
             if text:
                 self.recognized_text = text
+                if self.on_result:
+                    print(f"[ASR] 准备触发回调，文本: {text}")
+                    self._schedule_callback(text)
+                else:
+                    print(f"[WARN] [ASR] on_result 回调未设置！")
         except Exception as e:
             print(f"解析一句话结束结果失败: {e}")
         print("一句话结束")
     
     def _on_start(self, message, *args):
         """实时识别就绪回调"""
-        print("✅ 阿里云 ASR 准备就绪，可以发送音频")
+        print("[OK] 阿里云 ASR 准备就绪，可以发送音频")
         self.is_ready = True
     
     def _on_error(self, message, *args):
         """错误回调"""
-        print(f"❌ 阿里云 ASR 错误: {message}")
+        print(f"[FAIL] 阿里云 ASR 错误: {message}")
         self.connected = False
     
     def _on_close(self, *args):
         """连接关闭回调"""
-        print("🔌 阿里云 ASR 连接已关闭")
+        print("[CLOSE] 阿里云 ASR 连接已关闭")
         self.connected = False
         self.is_ready = False
+    
+    def _schedule_callback(self, text: str):
+        """
+        在正确的事件循环中调度回调函数
+        
+        Args:
+            text: 识别文本
+        """
+        if not text or not text.strip():
+            return
+            
+        current_time = time.time()
+        if text == self.last_callback_text and (current_time - self.last_callback_time) < 2:
+            print(f"[ASR] 跳过重复回调: {text}")
+            return
+            
+        self.last_callback_text = text
+        self.last_callback_time = current_time
+        
+        if self.event_loop and self.on_result:
+            try:
+                future = asyncio.run_coroutine_threadsafe(
+                    self.on_result(text),
+                    self.event_loop
+                )
+                print(f"[ASR] 回调已调度到事件循环: {text}")
+            except Exception as e:
+                print(f"[ASR] 调度回调失败: {e}")
+        else:
+            print(f"[ASR] 无法调度: event_loop={self.event_loop is not None}, on_result={self.on_result is not None}")
     
     def _on_result_changed(self, message, *args):
         """中间结果回调"""
@@ -75,33 +112,13 @@ class AliyunRealtimeASR:
         try:
             result = json.loads(message)
             text = result.get("payload", {}).get("result", "")
-            print(f"📝 [识别中] {text}")
+            print(f"[识别中] {text}")
         except Exception as e:
             print(f"解析中间结果失败: {e}")
     
     def _on_completed(self, message, *args):
-        """最终结果回调"""
-        import json
-        try:
-            result = json.loads(message)
-            text = result.get("payload", {}).get("result", "")
-            print(f"✅ [识别完成] {text}")
-            # 只有在text不为空时才更新识别结果
-            if text:
-                self.recognized_text = text
-            if self.on_result:
-                # 检查是否在异步上下文中
-                try:
-                    loop = asyncio.get_event_loop()
-                    loop.create_task(self.on_result(self.recognized_text))
-                except RuntimeError:
-                    # 如果不在异步上下文中，创建一个新的事件循环
-                    def run_async():
-                        asyncio.run(self.on_result(text))
-                    import threading
-                    threading.Thread(target=run_async).start()
-        except Exception as e:
-            print(f"解析最终结果失败: {e}")
+        """识别会话结束回调（整个识别过程结束，不触发回调）"""
+        print("[OK] [识别会话结束]")
     
     def generate_token(self) -> str:
         """
@@ -150,13 +167,12 @@ class AliyunRealtimeASR:
             bool: 连接是否成功
         """
         self.on_result = on_result_callback
+        self.event_loop = asyncio.get_running_loop()
         
         try:
-            # 生成token
             self.token = self.generate_token()
             print(f"生成的token: {self.token}")
             
-            # 创建NlsSpeechTranscriber实例
             self.asr = nls.NlsSpeechTranscriber(
                 url="wss://nls-gateway.cn-shanghai.aliyuncs.com/ws/v1",
                 token=self.token,
@@ -171,10 +187,8 @@ class AliyunRealtimeASR:
                 callback_args=[self]
             )
             
-            # 启动实时识别
             print("正在连接阿里云ASR服务...")
             try:
-                # 启动实时识别
                 self.asr.start(
                     aformat=self.format,
                     sample_rate=self.sample_rate,

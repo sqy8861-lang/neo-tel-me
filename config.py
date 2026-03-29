@@ -1,124 +1,96 @@
-import toml
-import os
+from __future__ import annotations
 
-class NeoTelMeConfig:
-    """Neo-tel-me 配置"""
+from typing import ClassVar
 
-    def __init__(self, config_file="config.toml"):
-        """
-        初始化配置
+from src.core.components.base.config import BaseConfig, Field, SectionBase, config_section
 
-        Args:
-            config_file: 配置文件路径
-        """
-        self.config_file = config_file
-        self._load_config()
 
-    def _load_config(self):
-        """
-        加载配置文件
-        """
-        if os.path.exists(self.config_file):
-            with open(self.config_file, 'r', encoding='utf-8') as f:
-                config_data = toml.load(f)
+class NeoTelMeConfig(BaseConfig):
+    """Neo-tel-me 插件配置"""
 
-            # 插件基础配置
-            self.plugin = config_data.get('plugin', {})
-            
-            # 阿里云ASR配置
-            self.aliyun_asr = config_data.get('aliyun_asr', {})
-            self.aliyun_asr_access_key_id = self.aliyun_asr.get('access_key_id', '')
-            self.aliyun_asr_access_key_secret = self.aliyun_asr.get('access_key_secret', '')
-            self.aliyun_asr_appkey = self.aliyun_asr.get('appkey', '')
-            self.aliyun_asr_sample_rate = self.aliyun_asr.get('sample_rate', 16000)
-            self.aliyun_asr_format = self.aliyun_asr.get('format', 'wav')
-
-            # MiniMax TTS配置
-            self.minimax_tts = config_data.get('minimax_tts', {})
-            self.minimax_tts_api_key = self.minimax_tts.get('api_key', '')
-            self.minimax_tts_voice_id = self.minimax_tts.get('voice_id', 'female-tianmei')
-            self.minimax_tts_model = self.minimax_tts.get('model', 'speech-01')
-            self.minimax_tts_speed = self.minimax_tts.get('speed', 1.0)
-            self.minimax_tts_volume = self.minimax_tts.get('volume', 1.0)
-            self.minimax_tts_pitch = self.minimax_tts.get('pitch', 1.0)
-            self.minimax_tts_sample_rate = self.minimax_tts.get('sample_rate', 24000)
-
-            # 音频配置
-            self.audio = config_data.get('audio', {})
-            self.audio_sample_rate = self.audio.get('sample_rate', 16000)
-            self.audio_chunk = self.audio.get('chunk', 1024)
-            self.audio_vad_threshold = self.audio.get('vad_threshold', 0.02)
-
-            # LLM配置
-            self.llm = config_data.get('llm', {})
-            self.llm_model = self.llm.get('model', {})
-            self.llm_model_provider = self.llm_model.get('provider', 'openai')
-            self.llm_model_name = self.llm_model.get('model_name', 'gpt-4')
-            self.llm_model_api_key = self.llm_model.get('api_key', '')
-            self.llm_model_base_url = self.llm_model.get('base_url', 'https://api.openai.com/v1')
-            self.llm_model_temperature = self.llm_model.get('temperature', 0.7)
-            self.llm_model_max_tokens = self.llm_model.get('max_tokens', 1000)
-            
-            self.llm_prompt = self.llm.get('prompt', {})
-            self.llm_prompt_personality_prompt = self.llm_prompt.get('personality_prompt', '')
-            self.llm_prompt_memory_prompt = self.llm_prompt.get('memory_prompt', '')
-            self.llm_prompt_max_history = self.llm_prompt.get('max_history', 4)
-            
-            self.llm_memory = self.llm.get('memory', {})
-            self.llm_memory_recent_count = self.llm_memory.get('recent_count', 5)
-            self.llm_memory_important_only = self.llm_memory.get('important_only', True)
-            
-            # WebSocket配置
-            self.websocket = config_data.get('websocket', {})
-            self.websocket_enabled = self.websocket.get('enabled', False)
-            self.websocket_host = self.websocket.get('host', '0.0.0.0')
-            self.websocket_port = self.websocket.get('port', 8766)
-            self.websocket_audio_format = self.websocket.get('audio_format', 'pcm')
-        else:
-            # 默认配置
-            self.plugin = {}
-            self.aliyun_asr = {}
-            self.aliyun_asr_access_key_id = ''
-            self.aliyun_asr_access_key_secret = ''
-            self.aliyun_asr_appkey = ''
-            self.aliyun_asr_sample_rate = 16000
-            self.aliyun_asr_format = 'wav'
-
-            self.minimax_tts = {}
-            self.minimax_tts_api_key = ''
-            self.minimax_tts_voice_id = 'female-tianmei'
-            self.minimax_tts_model = 'speech-01'
-            self.minimax_tts_speed = 1.0
-            self.minimax_tts_volume = 1.0
-            self.minimax_tts_pitch = 1.0
-            self.minimax_tts_sample_rate = 24000
-
-            self.audio = {}
-            self.audio_sample_rate = 16000
-            self.audio_chunk = 1024
-            self.audio_vad_threshold = 0.02
-
-            self.llm = {}
-            self.llm_model = {}
-            self.llm_model_provider = 'openai'
-            self.llm_model_name = 'gpt-4'
-            self.llm_model_api_key = ''
-            self.llm_model_base_url = 'https://api.openai.com/v1'
-            self.llm_model_temperature = 0.7
-            self.llm_model_max_tokens = 1000
-            
-            self.llm_prompt = {}
-            self.llm_prompt_personality_prompt = ''
-            self.llm_prompt_memory_prompt = ''
-            self.llm_prompt_max_history = 4
-            
-            self.llm_memory = {}
-            self.llm_memory_recent_count = 5
-            self.llm_memory_important_only = True
-            
-            # WebSocket默认配置
-            self.websocket = {}
-            self.websocket_enabled = False
-            self.websocket_host = '0.0.0.0'
-            self.websocket_port = 8766
-            self.websocket_audio_format = 'pcm'
+    config_name: ClassVar[str] = "config"
+    config_description: ClassVar[str] = "Neo-tel-me 实时语音对话插件配置"
+    
+    @config_section("plugin")
+    class PluginSection(SectionBase):
+        """插件基础配置"""
+        enable_cooldown: bool = Field(default=False, description="是否启用冷却时间")
+        cooldown_minutes: float = Field(default=5.0, description="冷却时间（分钟）")
+    
+    @config_section("aliyun_asr")
+    class AliyunASRSection(SectionBase):
+        """阿里云ASR配置"""
+        access_key_id: str = Field(default="", description="阿里云Access Key ID")
+        access_key_secret: str = Field(default="", description="阿里云Access Key Secret")
+        appkey: str = Field(default="", description="阿里云ASR AppKey")
+        sample_rate: int = Field(default=16000, description="采样率")
+        format: str = Field(default="pcm", description="音频格式")
+    
+    @config_section("minimax_tts")
+    class MiniMaxTTSSection(SectionBase):
+        """MiniMax TTS配置"""
+        api_key: str = Field(default="", description="MiniMax API Key")
+        voice_id: str = Field(default="", description="语音ID")
+        model: str = Field(default="speech-2.6-turbo", description="TTS模型")
+        sample_rate: int = Field(default=16000, description="采样率")
+        format: str = Field(default="pcm", description="音频格式")
+        speed: float = Field(default=1.0, description="语速")
+        volume: float = Field(default=1.0, description="音量")
+        pitch: int = Field(default=0, description="音调")
+    
+    @config_section("audio")
+    class AudioSection(SectionBase):
+        """音频配置"""
+        sample_rate: int = Field(default=16000, description="采样率")
+        chunk: int = Field(default=512, description="音频块大小（优化延迟）")
+        vad_threshold: int = Field(default=600, description="语音活动检测阈值（优化响应速度）")
+    
+    @config_section("websocket")
+    class WebSocketSection(SectionBase):
+        """WebSocket配置"""
+        enabled: bool = Field(default=False, description="是否启用WebSocket模式（用于H5前端）")
+        host: str = Field(default="0.0.0.0", description="WebSocket服务器主机地址")
+        port: int = Field(default=8766, description="WebSocket服务器端口")
+        public_ip: str = Field(default="", description="服务器公网IP（可选，留空则使用host）")
+        audio_format: str = Field(default="pcm", description="音频格式（pcm或mp3）")
+        use_ssl: bool = Field(default=False, description="是否启用SSL/TLS（HTTPS/WSS）")
+        ssl_cert: str = Field(default="", description="SSL证书文件路径（.pem或.crt）")
+        ssl_key: str = Field(default="", description="SSL私钥文件路径（.key）")
+    
+    @config_section("llm")
+    class LLMSection(SectionBase):
+        """LLM配置"""
+        
+        @config_section("model")
+        class ModelSection(SectionBase):
+            """模型配置"""
+            provider: str = Field(default="openai", description="模型提供商")
+            model_name: str = Field(default="gpt-4", description="模型名称")
+            api_key: str = Field(default="", description="API密钥")
+            base_url: str = Field(default=None, description="API基础URL")
+            temperature: float = Field(default=0.7, description="温度参数")
+            max_tokens: int = Field(default=1000, description="最大token数")
+        
+        @config_section("prompt")
+        class PromptSection(SectionBase):
+            """提示词配置"""
+            personality_prompt: str = Field(default="", description="性格提示词")
+            memory_prompt: str = Field(default="", description="记忆提示词")
+            max_history: int = Field(default=4, description="最近历史记录数量")
+        
+        @config_section("memory")
+        class MemorySection(SectionBase):
+            """记忆配置"""
+            recent_count: int = Field(default=5, description="近期记忆数量")
+            important_only: bool = Field(default=True, description="只获取重要记忆")
+        
+        model: ModelSection = Field(default_factory=ModelSection)
+        prompt: PromptSection = Field(default_factory=PromptSection)
+        memory: MemorySection = Field(default_factory=MemorySection)
+    
+    plugin: PluginSection = Field(default_factory=PluginSection)
+    aliyun_asr: AliyunASRSection = Field(default_factory=AliyunASRSection)
+    minimax_tts: MiniMaxTTSSection = Field(default_factory=MiniMaxTTSSection)
+    audio: AudioSection = Field(default_factory=AudioSection)
+    websocket: WebSocketSection = Field(default_factory=WebSocketSection)
+    llm: LLMSection = Field(default_factory=LLMSection)

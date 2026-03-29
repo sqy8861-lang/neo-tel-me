@@ -22,8 +22,8 @@ sample_rate = 24000
 [audio]
 # 音频配置
 sample_rate = 16000
-chunk = 1024
-vad_threshold = 0.02
+chunk = 512  # 音频块大小（优化延迟）
+vad_threshold = 600  # 语音活动检测阈值（优化响应速度）
 
 [llm]
 # LLM配置
@@ -53,3 +53,6 @@ enabled = false  # 是否启用WebSocket模式（用于H5前端）
 host = "0.0.0.0"  # WebSocket服务器主机地址
 port = 8766  # WebSocket服务器端口
 audio_format = "pcm"  # 音频格式（pcm或mp3）
+use_ssl = false  # 是否启用SSL/TLS（HTTPS/WSS）- 手机访问必须启用
+ssl_cert = ""  # SSL证书文件路径（留空则自动生成自签名证书）
+ssl_key = ""  # SSL私钥文件路径（留空则自动生成自签名证书）

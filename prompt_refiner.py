@@ -130,7 +130,7 @@ class PromptRefiner:
         
         # 如果有用户昵称，按照要求修改提示词
         if user_nickname:
-            base_prompt = f"你是辞安，用户的傲娇系温柔守护者。你说话的对象是{user_nickname}。"
+            base_prompt = f"你是辞安，用户的傲娇系温柔守护者。你说话的对象是{user_nickname}。你正在打电话，所以回复中只有对话内容没有带括号的动作描述。"
         
         if not prompts:
             print("没有找到custom prompts，使用默认性格提示词")
@@ -143,17 +143,26 @@ class PromptRefiner:
             print("没有找到非AFC模式的prompts，使用默认性格提示词")
             return base_prompt
         
-        # 提取内容
-        raw_content = self.extract_content(afc_prompts)
+        # 按priority排序（从高到低）
+        afc_prompts.sort(key=lambda x: x.get('priority', 0), reverse=True)
+        
+        # 提取内容，参考analyze_prompts.py的格式
+        model_input = "请根据以下文档内容，总结一份约200字的人物分析，侧重点为人物的语言习惯和性格特征。\n"
+        model_input += "注意：priority值越高表示该文档的重要性越高。\n\n"
+        
+        for prompt in afc_prompts:
+            model_input += f"【文档名称】: {prompt['name']}\n"
+            model_input += f"【重要性】: priority={prompt['priority']}\n"
+            model_input += f"【内容】:\n{prompt['content']}\n\n"
         
         # 如果有用户昵称，添加到内容中
         if user_nickname:
-            raw_content += f"\n你说话的对象是{user_nickname}。"
+            model_input += f"\n你说话的对象是{user_nickname}。"
         
-        print(f"提取到 {len(raw_content)} 字的原始内容")
+        print(f"提取到 {len(model_input)} 字的原始内容")
         
         # 精炼提示词
-        refined_prompt = await self.refine_personality_prompt(llm_client, raw_content)
+        refined_prompt = await self.refine_personality_prompt(llm_client, model_input)
         
         return refined_prompt
     

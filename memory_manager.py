@@ -131,6 +131,68 @@ class MemoryManager:
         print(f"使用原始记忆内容: {len(self.memory_prompt)}字")
         return self.memory_prompt
     
+    async def search_memories_by_keyword(self, keyword: str) -> List[MemoryItem]:
+        """
+        根据关键词搜索记忆，参考search_memory_by_title.py的逻辑
+        
+        Args:
+            keyword: 搜索关键词
+            
+        Returns:
+            List[MemoryItem]: 搜索到的记忆列表
+        """
+        import sqlite3
+        from pathlib import Path
+        
+        # 数据库路径
+        db_path = Path("data/booku_memory/metadata.db")
+        if not db_path.exists():
+            print(f"错误: 数据库文件不存在: {db_path}")
+            return []
+        
+        print(f"正在从 {db_path} 搜索包含关键字 '{keyword}' 的记忆...")
+        
+        # 连接数据库
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        search_memories = []
+        
+        try:
+            # 使用LIKE语句搜索包含关键字的标题
+            cursor.execute("""
+                SELECT memory_id, title, content, bucket, folder_id, created_at 
+                FROM booku_memory_records 
+                WHERE title LIKE ? AND is_deleted = 0
+                ORDER BY created_at DESC
+            """, (f"%{keyword}%",))
+            
+            records = cursor.fetchall()
+            
+            if not records:
+                print(f"未找到标题包含 '{keyword}' 的记忆")
+                return []
+            
+            print(f"共找到 {len(records)} 条标题包含 '{keyword}' 的记忆")
+            
+            for record in records:
+                memory_id, title, content, bucket, folder_id, created_at = record
+                # 创建MemoryItem对象
+                memory_item = MemoryItem(
+                    content=f"{title}: {content}",
+                    importance=0.8,  # 搜索到的记忆视为重要
+                    timestamp=created_at,
+                    type="important"
+                )
+                search_memories.append(memory_item)
+                
+        except Exception as e:
+            print(f"搜索记忆失败: {e}")
+        finally:
+            conn.close()
+        
+        return search_memories
+    
     def _format_memories(self, memories: List[MemoryItem]) -> str:
         """
         格式化记忆列表
