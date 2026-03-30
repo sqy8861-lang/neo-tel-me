@@ -1,0 +1,132 @@
+# Neo-tel-me 插件配置示例
+# 复制此文件到 config/plugins/neo_tel_me/config.toml 并填写实际值
+
+# 插件基础配置
+[plugin]
+# 是否启用冷却时间
+enable_cooldown = false
+
+# 冷却时间（分钟）
+cooldown_minutes = 5.0
+
+# 阿里云ASR配置
+[aliyun_asr]
+# 阿里云Access Key ID
+access_key_id = "your_access_key_id"
+
+# 阿里云Access Key Secret
+access_key_secret = "your_access_key_secret"
+
+# 阿里云ASR AppKey
+appkey = "your_appkey"
+
+# 采样率
+sample_rate = 16000
+
+# 音频格式
+format = "pcm"
+
+# MiniMax TTS配置
+[minimax_tts]
+# MiniMax API Key
+api_key = "your_minimax_api_key"
+
+# 语音ID
+voice_id = "neo_cian2"
+
+# TTS模型
+model = "speech-2.6-turbo"
+
+# 采样率
+sample_rate = 16000
+
+# 音频格式
+format = "pcm"
+
+# 语速
+speed = 1.0
+
+# 音量
+volume = 1.0
+
+# 音调
+pitch = 0
+
+# 音频配置
+[audio]
+# 采样率
+sample_rate = 16000
+
+# 音频块大小（优化延迟）
+chunk = 512
+
+# 语音活动检测阈值（优化响应速度）
+vad_threshold = 600
+
+# WebSocket配置
+[websocket]
+# 是否启用WebSocket模式（用于H5前端）
+enabled = true
+
+# WebSocket服务器主机地址
+host = "0.0.0.0"
+
+# WebSocket服务器端口
+port = 8766
+
+# 服务器公网IP（可选，留空则使用host）
+public_ip = "your_public_ip"
+
+# 音频格式（pcm或mp3）
+audio_format = "pcm"
+
+# 是否启用SSL/TLS（HTTPS/WSS）
+use_ssl = false
+
+# SSL证书文件路径（.pem或.crt）- 留空则自动生成自签名证书
+ssl_cert = ""
+
+# SSL私钥文件路径（.key）- 留空则自动生成
+ssl_key = ""
+
+# LLM配置
+[llm]
+
+# 模型配置
+[llm.model]
+# 模型提供商（openai, DeepSeek, etc.）
+provider = "DeepSeek"
+
+# 模型名称
+model_name = "deepseek-chat"
+
+# API密钥
+api_key = "your_llm_api_key"
+
+# API基础URL
+base_url = "https://api.deepseek.com"
+
+# 温度参数
+temperature = 0.7
+
+# 最大token数
+max_tokens = 1000
+
+# 提示词配置
+[llm.prompt]
+# 性格提示词（留空自动生成）
+personality_prompt = ""
+
+# 记忆提示词（留空自动生成）
+memory_prompt = ""
+
+# 最近历史记录数量
+max_history = 4
+
+# 记忆配置
+[llm.memory]
+# 近期记忆数量
+recent_count = 5
+
+# 只获取重要记忆
+important_only = true
