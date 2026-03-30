@@ -2,7 +2,7 @@
 连麦消息存储器 - 直接存储连麦消息到数据库和记忆
 
 核心思路：
-- 直接调用 StreamManager.add_message() 存入 MoFox.db
+- 直接写入 MoFox.db 数据库（绕过 StreamManager.add_message 的未读列表逻辑）
 - 直接调用 booku_memory 写入记忆
 - 不经过 ON_MESSAGE_RECEIVED 事件，避免触发 chatter
 - 使用与 QQ 聊天相同的 person_id，确保检索时能关联
@@ -74,11 +74,11 @@ class CallMessageStorage:
         person_id: str,
     ) -> bool:
         """
-        直接存储消息到数据库和记忆（不经过事件系统）
+        直接存储消息到数据库和记忆（不经过未读列表）
 
-        1. 调用 StreamManager.add_message() 存入 MoFox.db
+        1. 直接写入 MoFox.db 数据库
         2. 调用 booku_memory 写入记忆
-        3. 不触发 ON_MESSAGE_RECEIVED 事件，避免进入未读列表和触发 chatter
+        3. 不加入未读列表，不触发 chatter
 
         Args:
             message: 消息对象
@@ -88,7 +88,7 @@ class CallMessageStorage:
             bool: 是否存储成功
         """
         try:
-            await self.stream_manager.add_message(message)
+            await self._write_message_to_db(message, person_id)
             logger.debug(f"连麦消息已直接存入数据库: {message.message_id}")
 
             asyncio.create_task(self._write_memory_async(message))
@@ -97,6 +97,39 @@ class CallMessageStorage:
         except Exception as e:
             logger.error(f"存储连麦消息失败: {e}", exc_info=True)
             return False
+
+    async def _write_message_to_db(
+        self,
+        message: "Message",
+        person_id: str,
+    ) -> None:
+        """直接写入数据库（绕过 StreamManager 的未读列表逻辑）"""
+        from src.kernel.db.core.session import get_db_session
+        from src.core.models.sql_alchemy import Messages
+
+        async with get_db_session() as session:
+            existing = await session.execute(
+                Messages.__table__.select().where(
+                    Messages.message_id == message.message_id,
+                    Messages.platform == message.platform,
+                )
+            )
+            if existing.first():
+                return
+
+            db_message = Messages(
+                message_id=message.message_id,
+                stream_id=message.stream_id,
+                person_id=person_id,
+                time=message.time,
+                message_type=message.message_type.value,
+                content=str(message.content),
+                processed_plain_text=message.processed_plain_text,
+                reply_to=message.reply_to,
+                platform=message.platform,
+            )
+            session.add(db_message)
+            await session.commit()
 
     async def _write_memory_async(self, message: "Message") -> None:
         """异步写入记忆（后台任务）
