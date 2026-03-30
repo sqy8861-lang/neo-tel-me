@@ -1,19 +1,22 @@
-# Neo-tel-me 插件依赖
+# neo_tel_me 插件依赖
 # ========================
-# 此文件仅包含 neo-tel-me 插件所需的第三方依赖
-# Neo-MoFox 框架依赖请参考主项目 requirements.txt
 
-# 核心依赖
+# 核心依赖（WebSocket 模式和 H5 前端必需）
 openai>=2.0.0
 toml>=0.10.0
 websockets>=11.0.3
 pydantic>=2.0.0
-json-repair>=0.25.0
-cryptography>=41.0.0 # WebSocket HTTPS 模式生成自签名证书时需要
 
-# 本地模式依赖（使用 PyAudio 采集音频时需要）
+# 本地模式依赖（使用 PyAudio 采集音频时才需要）
 # 如果只在 H5 网页上使用连麦功能，可以注释掉以下依赖
-# pyaudio>=0.2.14
-# numpy>=1.21.0
-# alibabacloud-nls-python-sdk>=1.0.0
+pyaudio>=0.2.14
+numpy>=1.21.0
+alibabacloud-nls-python-sdk>=1.0.0
 
+# 可选依赖
+# cryptography>=41.0.0  # 生成自签名证书时需要（WebSocket HTTPS 模式）
+
+# 以下依赖在当前代码中未使用，可选安装
+# oss2>=2.18.0  # 阿里云 OSS 存储（如需使用可启用）
+# matplotlib>=3.3.4  # 图表绘制（如需使用可启用）
+# aliyun-python-sdk-core>=2.13.3  # 阿里云 SDK 核心（如需使用可启用）
