@@ -1,4 +1,4 @@
-from src.core.components.base.action import BaseAction
+from src.app.plugin_system.base import BaseAction
 from src.kernel.logger import get_logger
 
 logger = get_logger("neo_tel_me")
@@ -17,7 +17,7 @@ class NeoTelMeAction(BaseAction):
 
         Args:
             action: 动作类型，可选值：start（启动）、stop（停止）
-            user_nickname: 用户昵称，用于连麦时标识用户
+            user_nickname: 用户昵称，用于连麦时标识用户（可选，会自动从消息上下文获取）
         """
         from .plugin import neo_tel_me_service
         
@@ -25,7 +25,34 @@ class NeoTelMeAction(BaseAction):
             if neo_tel_me_service.is_service_running():
                 return True, "Neo-tel-me 服务已经在运行中"
             
-            success = await neo_tel_me_service.start(user_nickname=user_nickname)
+            user_id = ""
+            actual_nickname = user_nickname
+            person_id = ""
+            
+            if hasattr(self, 'message') and self.message:
+                from_user = getattr(self.message, 'from_user', None)
+                if from_user:
+                    user_id = getattr(from_user, 'user_id', '')
+                    if not actual_nickname:
+                        actual_nickname = getattr(from_user, 'nickname', '')
+            
+            if not user_id and hasattr(self, 'chat_stream') and self.chat_stream:
+                context = getattr(self.chat_stream, 'context', None)
+                if context:
+                    user_id = getattr(context, 'triggering_user_id', '') or ''
+            
+            if user_id and self.chat_stream:
+                from src.core.utils.user_query_helper import get_user_query_helper
+                platform = getattr(self.chat_stream, 'platform', 'qq')
+                person_id = get_user_query_helper().generate_person_id(platform, user_id)
+            
+            logger.info(f"连麦触发: user_id={user_id}, nickname={actual_nickname}, person_id={person_id}")
+            
+            success = await neo_tel_me_service.start(
+                user_id=user_id,
+                user_nickname=actual_nickname,
+                person_id=person_id,
+            )
             if success:
                 # 检查是否启用了 WebSocket 模式
                 try:
@@ -40,8 +67,8 @@ class NeoTelMeAction(BaseAction):
                         # 构建网页链接
                         web_url = f"{protocol}://{host}:{port}"
                         # 直接发送网页链接给用户
-                        await self._send_to_stream(f"Neo-tel-me 服务已成功启动，网页链接：{web_url}")
-                        return True, f"Neo-tel-me 服务已成功启动，网页链接：{web_url}"
+                        await self._send_to_stream(f"连麦功能已经启动啦，链接在这里：{web_url}")
+                        return True, f"连麦功能已经启动啦，链接在这里：{web_url}"
                 except Exception as e:
                     # 如果获取配置失败，返回普通成功消息
                     logger.error(f"获取配置失败: {e}")

@@ -88,8 +88,13 @@ class LLMClient:
 1. 根据性格特征和记忆背景生成回复
 2. 保持与历史对话的连贯性
 3. 回复要自然、符合人设
-4. 回复要简洁，适合语音对话，不要包含动作和神情描述，但可以在需要时使用以下感叹词标签：(laughs)(chuckle)(coughs)(clear-throat)(groans)(breath)(pant)(inhale)(exhale)(gasps)(sniffs)(sighs)(snorts)(burps)(lip-smacking)(humming)(hissing)(emm)(sneezes)
+4. 回复要简洁，适合语音对话。
 5. 不要重复历史对话中的内容
+
+【约束】
+1. 仅可在需要时使用以下感叹词标签：(laughs)(chuckle)(coughs)(clear-throat)(groans)(breath)(pant)(inhale)(exhale)(gasps)(sniffs)(sighs)(snorts)(burps)(lip-smacking)(humming)(hissing)(emm)(sneezes)。
+2. 使用标签时必须其是英文且括号为英文括号。
+3. 禁止出现除上述标签以外的带括号的表达，禁止其他形式的非对话内容。
 
 请生成回复:"""
         

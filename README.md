@@ -1,37 +1,33 @@
 # Neo-tel-me
 
-一个基于Python的实时语音对话AI助手，支持语音识别、大语言模型对话和语音合成。
+Neo-MoFox 实时语音对话插件，支持阿里云 ASR 语音识别、大语言模型对话和 MiniMax TTS 语音合成。
 
 ## 功能特性
 
-- 实时语音识别（阿里云ASR）
-- 智能对话生成（支持OpenAI/Anthropic等大模型）
-- 高质量语音合成（MiniMax TTS）
-- 语音活动检测（VAD）和用户打断支持
-- 个性化提示词精炼
-- 记忆管理和上下文保持
-- 对话历史管理
-- H5页面连麦界面（支持手机和电脑）
-- WebSocket实时通信
-- HTTP静态文件服务
+- **实时语音识别**：基于阿里云 ASR，支持实时流式识别
+- **智能对话生成**：支持 OpenAI / DeepSeek 等兼容 OpenAI API 的大模型
+- **高质量语音合成**：MiniMax TTS，支持多种语音风格
+- **语音打断**：用户说话时可打断 AI 回复
+- **记忆系统**：实时判断消息价值并写入长期记忆
+- **H5 连麦界面**：支持手机和电脑浏览器
+- **WebSocket 实时通信**：低延迟双向音频传输
 
-## 系统架构
+## 安装
+
+将插件文件夹放入 Neo-MoFox 的 `plugins` 目录下：
 
 ```
-Neo-tel-me
-├── ASR模块（语音识别）
-├── LLM模块（对话生成）
-│   ├── 配置管理
-│   ├── 提示词精炼
-│   ├── 记忆管理
-│   └── 历史记录管理
-├── TTS模块（语音合成）
-├── 音频管理（采集/播放）
-├── WebSocket服务器（实时通信）
-└── HTTP服务器（H5页面服务）
+Neo-MoFox/
+└── plugins/
+    └── neo_tel_me/
+        ├── __init__.py
+        ├── plugin.py
+        ├── service.py
+        ├── config.py
+        └── ...
 ```
 
-## 安装依赖
+安装依赖：
 
 ```bash
 pip install -r requirements.txt
@@ -39,196 +35,145 @@ pip install -r requirements.txt
 
 ## 配置说明
 
-### 1. 阿里云ASR配置
+配置文件位于 `config/plugins/neo_tel_me/config.toml`：
 
-在配置文件中设置阿里云ASR的appkey：
-```python
-aliyun_asr:
-    appkey: "your_appkey"
-    sample_rate: 16000
-    format: "wav"
+### 阿里云 ASR 配置
+
+```toml
+[aliyun_asr]
+access_key_id = "your_access_key_id"
+access_key_secret = "your_access_key_secret"
+appkey = "your_appkey"
+sample_rate = 16000
+format = "pcm"
 ```
 
-### 2. MiniMax TTS配置
+### MiniMax TTS 配置
 
-设置MiniMax TTS的API密钥和语音参数：
-```python
-minimax_tts:
-    api_key: "your_api_key"
-    voice_id: "female-tianmei"
-    model: "speech-01"
-    speed: 1.0
-    volume: 1.0
-    pitch: 1.0
-    sample_rate: 24000
+```toml
+[minimax_tts]
+api_key = "your_api_key"
+voice_id = "neo_cian2"          # 语音ID
+model = "speech-2.6-turbo"      # TTS模型
+sample_rate = 16000
+format = "pcm"
+speed = 1.0
+volume = 1.0
+pitch = 0
 ```
 
-### 3. LLM配置
+### LLM 配置
 
-配置大语言模型参数：
-```python
-llm:
-    model:
-        provider: "openai"  # 或 "anthropic"
-        model_name: "gpt-4"
-        api_key: "your_api_key"
-        base_url: "https://api.openai.com/v1"
-        temperature: 0.7
-        max_tokens: 1000
+```toml
+[llm.model]
+provider = "DeepSeek"           # 模型提供商
+model_name = "deepseek-chat"    # 模型名称
+api_key = "your_api_key"
+base_url = "https://api.deepseek.com"
+temperature = 0.7
+max_tokens = 1000
+
+[llm.prompt]
+personality_prompt = ""         # 性格提示词（可选，留空自动生成）
+memory_prompt = ""              # 记忆提示词（可选）
+max_history = 4                 # 保留最近对话轮数
+
+[llm.memory]
+recent_count = 5                # 近期记忆数量
+important_only = true           # 只获取重要记忆
+```
+
+### WebSocket 配置（H5 模式）
+
+```toml
+[websocket]
+enabled = true                  # 启用 WebSocket 模式
+host = "0.0.0.0"
+port = 8766
+public_ip = ""                  # 公网IP（可选）
+audio_format = "pcm"
+use_ssl = false                 # 是否启用 HTTPS/WSS
+ssl_cert = ""                   # SSL 证书路径（留空则自动生成自签名证书）
+ssl_key = ""                    # SSL 私钥路径（留空则自动生成）
+```
+
+> **SSL 证书说明**：启用 `use_ssl = true` 时，如果 `ssl_cert` 和 `ssl_key` 为空，插件会自动生成自签名证书，首次访问浏览器会提示不安全，点击继续访问即可。
+
+### 音频配置（本地模式）
+
+```toml
+[audio]
+sample_rate = 16000
+chunk = 512                     # 音频块大小
+vad_threshold = 600             # 语音活动检测阈值
 ```
 
 ## 使用方法
 
-### H5页面连麦
+### 触发连麦
 
-1. 在Neo-MoFox中发送包含 `#连麦` 标签的消息
-2. 点击机器人回复的H5页面链接
-3. 在页面中点击"开始连麦"按钮
-4. 开始与AI进行语音对话
+在 Neo-MoFox 中发送包含 `#连麦` 标签的消息，AI 会返回 H5 连麦页面链接。
 
-### 基本使用
+### H5 连麦流程
 
-```python
-import asyncio
-from service import NeoTelMeService
-from config import Config
+1. 点击 AI 返回的连麦链接
+2. 浏览器请求麦克风权限
+3. 点击「开始连麦」按钮
+4. 开始语音对话
+5. 点击「结束连麦」退出
 
-async def main():
-    # 加载配置
-    config = Config.load("config.toml")
-    
-    # 创建服务
-    service = NeoTelMeService(config)
-    
-    # 启动服务
-    if await service.start():
-        print("服务已启动，开始对话...")
-        
-        # 保持运行
-        while service.is_service_running():
-            await asyncio.sleep(1)
-    
-    # 停止服务
-    await service.stop()
+### 记忆系统
 
-if __name__ == "__main__":
-    asyncio.run(main())
-```
+连麦过程中，插件会自动判断消息是否值得写入长期记忆：
 
-### LLM模块独立使用
+- 实时分析每条消息的内容价值
+- 包含事实、偏好、关系变化等重要信息时自动记录
+- 无需等待连麦结束
 
-```python
-from llm_config import LLMConfig
-from llm_client import LLMClient
-from prompt_refiner import PromptRefiner
-from memory_manager import MemoryManager
-from history_manager import HistoryManager
+## 模块说明
 
-# 初始化LLM配置
-config = LLMConfig()
-llm_client = LLMClient(config)
-await llm_client.initialize()
+| 文件 | 说明 |
+|------|------|
+| `plugin.py` | 插件入口，注册服务和动作 |
+| `service.py` | 核心服务，协调各模块 |
+| `config.py` | 配置定义 |
+| `aliyun_asr.py` | 阿里云实时语音识别 |
+| `minimax_tts.py` | MiniMax 语音合成 |
+| `audio_manager.py` | 本地音频采集与播放 |
+| `llm_client.py` | LLM 客户端封装 |
+| `llm_config.py` | LLM 配置管理 |
+| `prompt_refiner.py` | 提示词精炼 |
+| `memory_manager.py` | 记忆管理 |
+| `history_manager.py` | 对话历史管理 |
+| `call_message_storage.py` | 连麦消息存储与记忆写入 |
+| `websocket_handler.py` | WebSocket 服务 |
+| `action.py` | 连麦触发动作 |
+| `web/index.html` | H5 连麦页面 |
 
-# 设置提示词
-llm_client.set_system_prompt("你是辞安，用户的傲娇系温柔守护者。")
-llm_client.set_memory_prompt("用户是辞安的哥哥，关系亲密。")
+## 依赖说明
 
-# 生成回复
-history = "用户: 你好"
-user_input = "你好"
-reply = await llm_client.generate_response(user_input, history)
-print(f"AI回复: {reply}")
-```
+### 核心依赖
 
-## 核心模块说明
+- `openai` - OpenAI API 客户端
+- `websockets` - WebSocket 通信
+- `pydantic` - 数据验证
+- `toml` - 配置解析
+- `json-repair` - JSON 修复解析
+- `cryptography` - SSL 证书生成
 
-### 1. ASR模块（aliyun_asr.py）
+### 本地模式依赖
 
-负责实时语音识别，将用户语音转换为文本。
-
-### 2. LLM模块
-
-- **llm_config.py**: LLM配置管理
-- **llm_client.py**: LLM客户端，支持OpenAI和Anthropic API
-- **prompt_refiner.py**: 提示词精炼，将性格描述精炼为200字提示词
-- **memory_manager.py**: 记忆管理，集成booku_memory获取对话上下文
-- **history_manager.py**: 历史记录管理，维护最近4条对话记录
-
-### 3. TTS模块（minimax_tts.py）
-
-负责将AI回复转换为语音，支持流式播放。
-
-### 4. 音频管理模块（audio_manager.py）
-
-负责音频采集、播放和语音活动检测。
-
-### 5. WebSocket服务器（websocket_server.py）
-
-处理H5页面的实时音频通信。
-
-### 6. HTTP服务器（http_server.py）
-
-提供H5页面静态文件服务。
-
-## 工作流程
-
-### H5页面连麦流程
-
-1. **用户触发**：在QQ中发送包含 `#连麦` 标签的消息
-2. **生成链接**：大模型调用 `neo_tel_me` 动作，生成H5页面链接
-3. **用户打开链接**：用户点击链接，打开H5页面
-4. **初始化**：H5页面连接WebSocket服务器，显示"初始化完成"
-5. **开始连麦**：用户点击"开始连麦"按钮，页面请求麦克风权限
-6. **实时对话**：
-   - 页面采集音频并发送到WebSocket服务器
-   - WebSocket服务器将音频发送到阿里云ASR
-   - ASR识别结果发送到LLM生成回复
-   - LLM回复通过MiniMax TTS转换为语音
-   - 语音发送回H5页面并播放
-7. **结束连麦**：用户点击"结束连麦"按钮或关闭页面
-
-### 本地服务流程
-
-1. **初始化阶段**
-   - 加载配置文件
-   - 初始化LLM组件
-   - 生成性格提示词和记忆提示词
-
-2. **连麦启动阶段**
-   - 初始化音频设备
-   - 连接ASR服务
-   - 准备TTS服务
-
-3. **语音对话阶段**
-   - 采集用户语音
-   - ASR识别为文本
-   - LLM生成回复（性格+记忆+历史+用户输入）
-   - TTS合成语音
-   - 播放AI回复
-
-## 测试
-
-运行测试脚本：
-```bash
-python test_llm_module.py
-```
+- `pyaudio` - 音频采集与播放
+- `numpy` - 音频数据处理
+- `alibabacloud-nls-python-sdk` - 阿里云 ASR SDK
 
 ## 注意事项
 
-1. 需要有效的API密钥才能使用ASR、TTS和LLM服务
-2. 确保麦克风和扬声器正常工作
-3. 建议使用Python 3.8或更高版本
-4. 首次使用需要安装音频驱动和依赖库
-5. H5页面需要浏览器支持Web Audio API和MediaRecorder API
+1. 需要有效的阿里云 ASR、MiniMax TTS、LLM API 密钥
+2. H5 模式需要服务器有公网 IP 或内网穿透
+3. 建议使用 Python 3.10 或更高版本
+4. 浏览器需支持 Web Audio API 和 MediaRecorder API
 
 ## 许可证
 
 MIT License
-
-## 贡献
-
-欢迎提交Issue和Pull Request！
-
-## 联系方式
-
-如有问题，请提交Issue或联系维护者。

@@ -1,9 +1,10 @@
 import asyncio
+import re
 from typing import Optional
 import json
 from pathlib import Path
 
-from src.core.components.base.service import BaseService
+from src.app.plugin_system.base import BaseService
 from src.kernel.logger import get_logger
 
 from .aliyun_asr import AliyunRealtimeASR
@@ -15,8 +16,43 @@ from .prompt_refiner import PromptRefiner
 from .memory_manager import MemoryManager
 from .history_manager import HistoryManager
 from .websocket_handler import WebSocketHandler
+from .call_message_storage import CallMessageStorage, CallSession
 
 logger = get_logger("neo_tel_me")
+
+ALLOWED_TTS_TAGS = {
+    "laughs", "chuckle", "coughs", "clear-throat", "groans", "breath", 
+    "pant", "inhale", "exhale", "gasps", "sniffs", "sighs", "snorts", 
+    "burps", "lip-smacking", "humming", "hissing", "emm", "sneezes"
+}
+
+
+def filter_tts_text(text: str) -> str:
+    """
+    过滤 TTS 文本，移除不允许的标签
+    
+    只保留允许列表中的英文标签，移除：
+    - 不在允许列表中的英文标签 (xxx)
+    - 所有中文标签 （xxx）
+    - 其他括号内容
+    
+    Args:
+        text: 原始文本
+        
+    Returns:
+        str: 过滤后的文本
+    """
+    def replace_tag(match):
+        tag_content = match.group(1)
+        if tag_content.lower() in ALLOWED_TTS_TAGS:
+            return match.group(0)
+        return ""
+    
+    filtered = re.sub(r'\(([^)]+)\)', replace_tag, text)
+    filtered = re.sub(r'（[^）]+）', '', filtered)
+    filtered = re.sub(r'\s+', ' ', filtered).strip()
+    
+    return filtered
 
 # 提示词存储路径
 import os
@@ -53,6 +89,8 @@ class NeoTelMeService(BaseService):
         self.is_running = False
         self.current_tts_task = None
         self.user_nickname = ""
+        self.user_id = ""
+        self.person_id = ""
         self.system_prompt = system_prompt
         
         self.llm_config = None
@@ -65,6 +103,10 @@ class NeoTelMeService(BaseService):
         # WebSocket相关组件
         self.websocket_handler = None
         self.websocket_task = None
+        
+        # 连麦消息适配器（伪装QQ消息存储）
+        self._call_adapter: CallMessageStorage | None = None
+        self._call_session: CallSession | None = None
     
     def _cfg(self):
         """
@@ -79,37 +121,50 @@ class NeoTelMeService(BaseService):
             raise RuntimeError("neo_tel_me plugin config 未正确加载")
         return cfg
     
-    async def start(self, user_nickname: str = ""):
+    async def start(self, user_nickname: str = "", user_id: str = "", person_id: str = ""):
         """
         启动服务
         
         Args:
             user_nickname: 用户昵称，用于连麦时标识用户
+            user_id: 用户ID（QQ号），用于生成统一的person_id
+            person_id: 预计算的person_id（优先使用）
         """
         try:
-            # 存储用户昵称
             self.user_nickname = user_nickname
+            self.user_id = user_id
+            self.person_id = person_id
             
-            # 初始化LLM组件
             await self._initialize_llm()
             
-            # 初始化MiniMax TTS
+            from src.core.managers.stream_manager import get_stream_manager
+            stream_manager = get_stream_manager()
+            
+            self._call_adapter = CallMessageStorage(stream_manager, self.llm_config)
+            self._call_session = await self._call_adapter.start_call_session(
+                user_id=user_id,
+                user_nickname=user_nickname,
+                person_id=person_id,
+            )
+            
+            logger.info(
+                f"连麦会话已创建: stream_id={self._call_session.stream_id}, "
+                f"person_id={self._call_session.person_id}"
+            )
+            
             self.tts = MiniMaxTTS(
                 api_key=self._cfg().minimax_tts.api_key,
                 voice_id=self._cfg().minimax_tts.voice_id,
                 model=self._cfg().minimax_tts.model
             )
             
-            # 根据配置选择模式
             if self._cfg().websocket.enabled:
-                # WebSocket模式（用于H5前端）
                 await self._start_websocket_mode()
             else:
-                # 本地模式（使用PyAudio）
                 await self._start_local_mode()
             
             self.is_running = True
-            logger.info(f"Neo-tel-me 服务已启动！用户昵称: {self.user_nickname}")
+            logger.info(f"Neo-tel-me 服务已启动！用户: {user_nickname} (ID: {user_id})")
             return True
         except Exception as e:
             logger.error(f"服务启动失败: {e}")
@@ -151,7 +206,8 @@ class NeoTelMeService(BaseService):
                 self.llm_client.set_system_prompt(personality_prompt)
             
             # 加载或生成记忆提示词
-            memory_prompt = await self._load_or_generate_memory_prompt()
+            stream_id = self._call_session.stream_id if self._call_session else ""
+            memory_prompt = await self._load_or_generate_memory_prompt(stream_id=stream_id)
             self.llm_client.set_memory_prompt(memory_prompt)
             
             # 初始化历史记录管理器
@@ -163,10 +219,13 @@ class NeoTelMeService(BaseService):
             logger.error(f"LLM组件初始化失败: {e}")
             self.llm_initialized = False
     
-    async def _load_or_generate_memory_prompt(self) -> str:
+    async def _load_or_generate_memory_prompt(self, stream_id: str = "") -> str:
         """
         加载或生成记忆提示词
         
+        Args:
+            stream_id: 聊天流 ID，用于查询消息历史
+            
         Returns:
             str: 记忆提示词
         """
@@ -187,9 +246,11 @@ class NeoTelMeService(BaseService):
         
         # 初始化记忆管理器
         self.memory_manager = MemoryManager()
-        # 这里可以传入booku_memory服务实例
-        # self.memory_manager.initialize(booku_memory_service)
-        memory_prompt = await self.memory_manager.generate_memory_prompt(self.llm_client, user_nickname=self.user_nickname)
+        memory_prompt = await self.memory_manager.generate_memory_prompt(
+            self.llm_client, 
+            stream_id=stream_id,
+            user_nickname=self.user_nickname
+        )
         
         # 存储记忆提示词
         try:
@@ -269,15 +330,13 @@ class NeoTelMeService(BaseService):
         try:
             self.is_running = False
             
-            # 停止音频采集
-            if self.audio_manager:
-                self.audio_manager.close()
+            if self._call_adapter and self._call_adapter.is_active:
+                try:
+                    stats = await self._call_adapter.end_call_session()
+                    logger.info(f"连麦会话已结束: {stats}")
+                except Exception as e:
+                    logger.error(f"结束连麦会话失败: {e}")
             
-            # 关闭ASR连接
-            if self.asr:
-                await self.asr.close()
-            
-            # 取消当前TTS任务
             if self.current_tts_task:
                 self.current_tts_task.cancel()
                 try:
@@ -285,15 +344,20 @@ class NeoTelMeService(BaseService):
                 except asyncio.CancelledError:
                     pass
             
-            # 关闭TTS连接
             if self.tts:
                 await self.tts.close()
+                self.tts = None
             
-            # 关闭LLM客户端
+            if self.asr:
+                await self.asr.close()
+                self.asr = None
+            
+            if self.audio_manager:
+                self.audio_manager.close()
+            
             if self.llm_client:
                 await self.llm_client.close()
             
-            # 停止WebSocket服务器
             if self.websocket_handler:
                 await self.websocket_handler.stop()
             
@@ -339,7 +403,6 @@ class NeoTelMeService(BaseService):
         """
         logger.info(f"用户说: {text}")
         
-        # 打断当前AI说话
         if self.tts and self.tts.is_playing():
             self.tts.interrupt()
             if self.current_tts_task:
@@ -349,19 +412,27 @@ class NeoTelMeService(BaseService):
                 except asyncio.CancelledError:
                     pass
         
-        # 添加用户消息到历史记录
         if self.history_manager:
             self.history_manager.add_user_message(text)
         
-        # 使用LLM生成回复
+        if self._call_adapter and self._call_adapter.is_active:
+            try:
+                await self._call_adapter.add_user_message(text)
+            except Exception as e:
+                logger.error(f"存储用户消息失败: {e}")
+        
         reply = await self._generate_reply(text)
         logger.info(f"AI 说: {reply}")
         
-        # 添加AI回复到历史记录
         if self.history_manager:
             self.history_manager.add_assistant_message(reply)
         
-        # 播放TTS
+        if self._call_adapter and self._call_adapter.is_active:
+            try:
+                await self._call_adapter.add_bot_message(reply)
+            except Exception as e:
+                logger.error(f"存储Bot回复失败: {e}")
+        
         self.current_tts_task = asyncio.create_task(self._play_tts(reply))
     
     async def _generate_reply(self, user_input: str) -> str:
@@ -430,9 +501,13 @@ class NeoTelMeService(BaseService):
         if not self.tts:
             return
         
+        filtered_text = filter_tts_text(text)
+        if filtered_text != text:
+            logger.debug(f"TTS文本过滤: '{text}' -> '{filtered_text}'")
+        
         try:
             async for audio_data in self.tts.tts_stream(
-                text=text,
+                text=filtered_text,
                 speed=self._cfg().minimax_tts.speed,
                 volume=self._cfg().minimax_tts.volume,
                 pitch=self._cfg().minimax_tts.pitch,
@@ -514,10 +589,22 @@ class NeoTelMeService(BaseService):
             
             websocket.history_manager.add_user_message(text)
             
+            if hasattr(websocket, 'call_adapter') and websocket.call_adapter:
+                try:
+                    await websocket.call_adapter.add_user_message(text)
+                except Exception as e:
+                    logger.error(f"WebSocket存储用户消息失败: {e}")
+            
             reply = await self._generate_reply_for_websocket(websocket, text)
             logger.info(f"客户端 {websocket.remote_address} AI 说: {reply}")
             
             websocket.history_manager.add_assistant_message(reply)
+            
+            if hasattr(websocket, 'call_adapter') and websocket.call_adapter:
+                try:
+                    await websocket.call_adapter.add_bot_message(reply)
+                except Exception as e:
+                    logger.error(f"WebSocket存储Bot回复失败: {e}")
             
             await self._generate_and_send_tts_to_websocket(websocket, reply)
             
@@ -565,10 +652,14 @@ class NeoTelMeService(BaseService):
         if not self.tts:
             return
         
+        filtered_text = filter_tts_text(text)
+        if filtered_text != text:
+            logger.debug(f"TTS文本过滤: '{text}' -> '{filtered_text}'")
+        
         try:
             audio_data = b''
             async for chunk in self.tts.tts_stream(
-                text=text,
+                text=filtered_text,
                 speed=self._cfg().minimax_tts.speed,
                 volume=self._cfg().minimax_tts.volume,
                 pitch=self._cfg().minimax_tts.pitch,
@@ -598,7 +689,26 @@ class NeoTelMeService(BaseService):
         Args:
             websocket: WebSocket连接
         """
-        logger.info(f"客户端 {websocket.remote_address} 已连接")
+        try:
+            from src.core.managers.stream_manager import get_stream_manager
+            stream_manager = get_stream_manager()
+            
+            websocket.call_adapter = CallMessageStorage(stream_manager, self.llm_config)
+            websocket.call_session = await websocket.call_adapter.start_call_session(
+                user_id=self.user_id,
+                user_nickname=self.user_nickname,
+                person_id=self.person_id,
+            )
+            
+            logger.info(
+                f"客户端 {websocket.remote_address} 已连接，"
+                f"stream_id={websocket.call_session.stream_id}, "
+                f"person_id={websocket.call_session.person_id}"
+            )
+        except Exception as e:
+            logger.error(f"为客户端创建适配器失败: {e}")
+            websocket.call_adapter = None
+            websocket.call_session = None
     
     async def _on_websocket_client_disconnected(self, websocket):
         """
@@ -610,8 +720,16 @@ class NeoTelMeService(BaseService):
         try:
             if hasattr(websocket, 'asr') and websocket.asr:
                 await websocket.asr.close()
+                websocket.asr = None
+            
+            if hasattr(websocket, 'call_adapter') and websocket.call_adapter:
+                stats = await websocket.call_adapter.end_call_session()
+                logger.info(f"客户端 {websocket.remote_address} 会话已结束: {stats}")
             
             logger.info(f"客户端 {websocket.remote_address} 已断开")
+            
+            if self.is_running:
+                asyncio.create_task(self._stop_service_async())
         except Exception as e:
             logger.error(f"处理客户端断开错误: {e}")
     
@@ -627,160 +745,14 @@ class NeoTelMeService(BaseService):
                 await websocket.asr.close()
                 websocket.asr = None
             
-            logger.info(f"客户端 {websocket.remote_address} 结束连麦，准备停止WebSocket服务")
+            logger.info(f"客户端 {websocket.remote_address} 结束连麦")
             
-            if hasattr(websocket, 'history_manager') and websocket.history_manager:
-                await self._save_conversation_memory(websocket.history_manager, self.user_nickname)
-            
-            asyncio.create_task(self._stop_service_async())
+            if hasattr(websocket, 'call_adapter') and websocket.call_adapter:
+                stats = await websocket.call_adapter.end_call_session()
+                logger.info(f"连麦会话已结束: {stats}")
             
         except Exception as e:
             logger.error(f"处理结束连麦错误: {e}")
-    
-    async def _save_conversation_memory(self, history_manager: HistoryManager, user_nickname: str = ""):
-        """
-        保存对话记忆到booku_memory
-        
-        Args:
-            history_manager: 历史记录管理器
-            user_nickname: 用户昵称
-        """
-        try:
-            if history_manager.is_empty():
-                logger.info("对话历史为空，跳过保存记忆")
-                return
-            
-            conversation_text = history_manager.format_for_llm()
-            if len(conversation_text) < 50:
-                logger.info("对话内容太短，跳过保存记忆")
-                return
-            
-            summary = await self._summarize_conversation(conversation_text, user_nickname)
-            if not summary:
-                logger.warning("对话总结失败，跳过保存记忆")
-                return
-            
-            await self._write_to_booku_memory(summary, user_nickname)
-            
-        except Exception as e:
-            logger.error(f"保存对话记忆失败: {e}")
-    
-    async def _summarize_conversation(self, conversation_text: str, user_nickname: str = "") -> str:
-        """
-        总结对话内容
-        
-        Args:
-            conversation_text: 对话文本
-            user_nickname: 用户昵称
-            
-        Returns:
-            str: 总结文本
-        """
-        try:
-            user_label = f"与{user_nickname}" if user_nickname else "与用户"
-            
-            prompt = f"""请将以下语音对话记录总结为简洁的记忆条目，用于长期记忆存储。
-
-对话记录：
-{conversation_text}
-
-要求：
-1. 总结为1-3句话，突出重要信息（情感、事件、关系变化等）
-2. 使用第三人称描述，如"辞安和{user_nickname if user_nickname else '用户'}..."
-3. 保留关键细节（时间、地点、事件、情感）
-4. 如果只是闲聊无重要信息，返回"无重要记忆点"
-
-请直接输出总结内容："""
-
-            response = await self.llm_client.generate(prompt, max_tokens=200)
-            return response.strip() if response else ""
-            
-        except Exception as e:
-            logger.error(f"总结对话失败: {e}")
-            return ""
-    
-    async def _write_to_booku_memory(self, summary: str, user_nickname: str = ""):
-        """
-        写入booku_memory
-        
-        Args:
-            summary: 总结内容
-            user_nickname: 用户昵称
-        """
-        try:
-            from src.app.plugin_system.api.llm_api import get_model_set_by_task, create_embedding_request
-            
-            model_set = get_model_set_by_task("embedding")
-            if not model_set:
-                logger.warning("未配置embedding模型，跳过向量存储")
-                self._save_memory_to_file(summary, user_nickname)
-                return
-            
-            embedding_request = create_embedding_request(model_set, inputs=[summary])
-            embeddings = await embedding_request.execute()
-            
-            if not embeddings or not embeddings[0]:
-                logger.warning("生成embedding失败，保存到文件")
-                self._save_memory_to_file(summary, user_nickname)
-                return
-            
-            from src.kernel.vector_db import get_vector_db_service
-            vector_db = get_vector_db_service()
-            
-            import time
-            memory_id = f"telme_{int(time.time() * 1000)}"
-            
-            metadata = {
-                "source": "neo_tel_me",
-                "user_nickname": user_nickname,
-                "timestamp": time.time()
-            }
-            
-            vector_db.add(
-                collection_name="conversation_memories",
-                ids=[memory_id],
-                embeddings=[embeddings[0]],
-                metadatas=[metadata],
-                documents=[summary]
-            )
-            
-            logger.info(f"[OK] 对话记忆已保存到向量库: {summary[:50]}...")
-            
-        except Exception as e:
-            logger.error(f"写入向量库失败: {e}")
-            self._save_memory_to_file(summary, user_nickname)
-    
-    def _save_memory_to_file(self, summary: str, user_nickname: str = ""):
-        """
-        备用：保存记忆到文件
-        
-        Args:
-            summary: 总结内容
-            user_nickname: 用户昵称
-        """
-        try:
-            from datetime import datetime
-            
-            memory_file = DATA_DIR / "conversation_memories.json"
-            memories = []
-            
-            if memory_file.exists():
-                with open(memory_file, 'r', encoding='utf-8') as f:
-                    memories = json.load(f)
-            
-            memories.append({
-                "timestamp": datetime.now().isoformat(),
-                "user_nickname": user_nickname,
-                "summary": summary
-            })
-            
-            with open(memory_file, 'w', encoding='utf-8') as f:
-                json.dump(memories, f, ensure_ascii=False, indent=2)
-            
-            logger.info(f"[OK] 对话记忆已保存到文件: {summary[:50]}...")
-            
-        except Exception as e:
-            logger.error(f"保存记忆到文件失败: {e}")
     
     async def _stop_service_async(self):
         """

@@ -1,4 +1,4 @@
-from src.core.components import BasePlugin, register_plugin
+from src.app.plugin_system.base import BasePlugin, register_plugin
 from src.kernel.logger import get_logger
 import os
 import json
@@ -50,6 +50,7 @@ class NeoTelMePlugin(BasePlugin):
         
         # 初始化服务
         neo_tel_me_service = NeoTelMeService(self, system_prompt)
+        
         logger.info("Neo-tel-me 插件已加载")
 
     async def on_plugin_unloaded(self) -> None:
@@ -124,5 +125,5 @@ class NeoTelMePlugin(BasePlugin):
         """
         return [
             NeoTelMeService,
-            NeoTelMeAction
+            NeoTelMeAction,
         ]
