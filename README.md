@@ -174,6 +174,12 @@ vad_threshold = 600             # 语音活动检测阈值
 3. 建议使用 Python 3.10 或更高版本
 4. 浏览器需支持 Web Audio API 和 MediaRecorder API
 
+## 友情支持
+
+如果你买雨云的服务器，可以用我的邀请码sqy8861支持一下我，帮助我的猫娘继续生活，感恩~
+
+实在不行帮忙点个⭐也很感谢。
+
 ## 许可证
 
 MIT License
