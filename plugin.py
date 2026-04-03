@@ -5,7 +5,7 @@ from pathlib import Path
 
 from .config import NeoTelMeConfig
 from .service import NeoTelMeService
-from .command import NeoTelMeCommand
+from .action import NeoTelMeAction
 from .llm_config import LLMConfig
 from .llm_client import LLMClient
 from .prompt_refiner import PromptRefiner
@@ -126,5 +126,5 @@ class NeoTelMePlugin(BasePlugin):
         """
         return [
             NeoTelMeService,
-            NeoTelMeCommand,
+            NeoTelMeAction,
         ]

@@ -15,8 +15,8 @@
       "enabled": true
     },
     {
-      "component_type": "command",
-      "component_name": "连麦",
+      "component_type": "action",
+      "component_name": "neo_tel_me",
       "dependencies": [],
       "enabled": true
     }
